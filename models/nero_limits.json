@@ -1,0 +1,78 @@
+{
+  "angle_margin_deg": 1.0,
+  "note": "sim angle range is ROS/SDK minus 1 deg per side; sim_velocity is URDF velocity (rad/s), enforced on qvel and ctrl slew",
+  "kp": 100.0,
+  "kv": 10.0,
+  "joints": [
+    {
+      "joint": "joint1",
+      "ros_lower": -2.705261,
+      "ros_upper": 2.705261,
+      "sim_lower": -2.687807707480057,
+      "sim_upper": 2.687807707480057,
+      "effort": 100.0,
+      "ros_velocity": 5.0,
+      "sim_velocity": 5.0
+    },
+    {
+      "joint": "joint2",
+      "ros_lower": -1.74533,
+      "ros_upper": 1.74533,
+      "sim_lower": -1.7278767074800567,
+      "sim_upper": 1.7278767074800567,
+      "effort": 100.0,
+      "ros_velocity": 5.0,
+      "sim_velocity": 5.0
+    },
+    {
+      "joint": "joint3",
+      "ros_lower": -2.757621,
+      "ros_upper": 2.757621,
+      "sim_lower": -2.740167707480057,
+      "sim_upper": 2.740167707480057,
+      "effort": 100.0,
+      "ros_velocity": 5.0,
+      "sim_velocity": 5.0
+    },
+    {
+      "joint": "joint4",
+      "ros_lower": -1.012291,
+      "ros_upper": 2.146755,
+      "sim_lower": -0.9948377074800567,
+      "sim_upper": 2.129301707480057,
+      "effort": 100.0,
+      "ros_velocity": 5.0,
+      "sim_velocity": 5.0
+    },
+    {
+      "joint": "joint5",
+      "ros_lower": -2.757621,
+      "ros_upper": 2.757621,
+      "sim_lower": -2.740167707480057,
+      "sim_upper": 2.740167707480057,
+      "effort": 100.0,
+      "ros_velocity": 5.0,
+      "sim_velocity": 5.0
+    },
+    {
+      "joint": "joint6",
+      "ros_lower": -0.733039,
+      "ros_upper": 0.959932,
+      "sim_lower": -0.7155857074800567,
+      "sim_upper": 0.9424787074800567,
+      "effort": 100.0,
+      "ros_velocity": 5.0,
+      "sim_velocity": 5.0
+    },
+    {
+      "joint": "joint7",
+      "ros_lower": -1.570797,
+      "ros_upper": 1.570797,
+      "sim_lower": -1.5533437074800567,
+      "sim_upper": 1.5533437074800567,
+      "effort": 100.0,
+      "ros_velocity": 5.0,
+      "sim_velocity": 5.0
+    }
+  ]
+}
