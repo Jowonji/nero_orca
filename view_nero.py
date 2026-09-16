@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import time
 
 import mujoco
 from mujoco import viewer
@@ -64,9 +65,13 @@ def check_control(model: mujoco.MjModel, data: mujoco.MjData) -> None:
 def run_viewer(model: mujoco.MjModel, data: mujoco.MjData) -> None:
     with viewer.launch_passive(model, data) as vis:
         while vis.is_running():
+            step_start = time.time()
             mujoco.mj_step(model, data)
             clip_qvel(model, data)
             vis.sync()
+            leftover = float(model.opt.timestep) - (time.time() - step_start)
+            if leftover > 0:
+                time.sleep(leftover)
 
 
 def main() -> None:

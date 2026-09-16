@@ -53,12 +53,12 @@
       <geom type="mesh" mesh="base_link" group="4" rgba="0 0 0 0"/>
       <body name="link1" pos="0 0 0.138">
         <inertial pos="-0.000768106 -5.71803e-05 -0.00686373" quat="0.998496 0.0243284 -0.0474034 0.0129308" mass="0.767105" diaginertia="0.000668361 0.000545022 0.000513619"/>
-        <joint name="joint1" damping="1" armature="0.05" range="-2.68781 2.68781" actuatorfrcrange="-100 100"/>
+        <joint name="joint1" damping="1" armature="0.05" range="-2.68781 2.68781" actuatorfrcrange="-24 24"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link1_visual_0" material="link1_visual_0_mat"/>
         <geom type="mesh" mesh="link1" group="4" rgba="0 0 0 0"/>
         <body name="link2" quat="1.89469e-08 1.89469e-08 0.707107 -0.707107">
           <inertial pos="0.000796867 -0.0789033 0.00111849" quat="0.724173 0.689546 -0.00281155 -0.00963045" mass="0.693819" diaginertia="0.00201137 0.00182229 0.000632162"/>
-          <joint name="joint2" damping="1" armature="0.05" range="-1.72788 1.72788" actuatorfrcrange="-100 100"/>
+          <joint name="joint2" damping="1" armature="0.05" range="-1.72788 1.72788" actuatorfrcrange="-24 24"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link2_visual_0" material="link2_visual_0_mat"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link2_visual_1" material="link2_visual_1_mat"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link2_visual_2" material="link2_visual_2_mat"/>
@@ -66,12 +66,12 @@
           <geom type="mesh" mesh="link2" group="4" rgba="0 0 0 0"/>
           <body name="link3" pos="0 -0.31 0" quat="-1.37922e-08 1.37922e-08 -0.707107 0.707107">
             <inertial pos="0.000145134 -0.00121379 -0.0486114" quat="0.999978 -0.00572699 -0.000503892 -0.00336231" mass="0.672465" diaginertia="0.0034323 0.00338703 0.000288126"/>
-            <joint name="joint3" damping="1" armature="0.05" range="-2.74017 2.74017" actuatorfrcrange="-100 100"/>
+            <joint name="joint3" damping="1" armature="0.05" range="-2.74017 2.74017" actuatorfrcrange="-16 16"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link3_visual_0" material="link3_visual_0_mat"/>
             <geom type="mesh" mesh="link3" group="4" rgba="0 0 0 0"/>
             <body name="link4" quat="-1.37922e-08 1.37922e-08 -0.707107 0.707107">
               <inertial pos="-0.000313346 -0.0567519 0.000760561" quat="0.743967 0.668141 -0.00555621 -0.00837616" mass="0.484514" diaginertia="0.000503972 0.000403451 0.00023296"/>
-              <joint name="joint4" damping="1" armature="0.05" range="-0.994838 2.1293" actuatorfrcrange="-100 100"/>
+              <joint name="joint4" damping="1" armature="0.05" range="-0.994838 2.1293" actuatorfrcrange="-16 16"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link4_visual_0" material="link4_visual_0_mat"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link4_visual_1" material="link4_visual_1_mat"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link4_visual_2" material="link4_visual_2_mat"/>
@@ -80,18 +80,18 @@
               <geom type="mesh" mesh="link4" group="4" rgba="0 0 0 0"/>
               <body name="link5" pos="0 -0.27001 0" quat="0.5 0.5 -0.5 0.5">
                 <inertial pos="0.00265591 0.00201196 -0.116209" quat="0.994383 -0.0299767 0.0135244 0.100607" mass="0.583684" diaginertia="0.000897188 0.000859677 0.000214923"/>
-                <joint name="joint5" damping="1" armature="0.05" range="-2.74017 2.74017" actuatorfrcrange="-100 100"/>
+                <joint name="joint5" damping="1" armature="0.05" range="-2.74017 2.74017" actuatorfrcrange="-8 8"/>
                 <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link5_visual_0" material="link5_visual_0_mat"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link5_visual_1" material="link5_visual_1_mat"/>
                 <geom type="mesh" mesh="link5" group="4" rgba="0 0 0 0"/>
                 <body name="link6" quat="0.5 0.5 -0.5 0.5">
                   <inertial pos="9.50151e-05 0.00107831 -0.00019111" quat="0.708463 0.705104 -0.0268147 0.0137484" mass="0.314041" diaginertia="6.02857e-05 5.75589e-05 4.69904e-05"/>
-                  <joint name="joint6" damping="1" armature="0.05" range="-0.715586 0.942479" actuatorfrcrange="-100 100"/>
+                  <joint name="joint6" damping="1" armature="0.05" range="-0.715586 0.942479" actuatorfrcrange="-8 8"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link6_visual_0" material="link6_visual_0_mat"/>
                   <geom type="mesh" mesh="link6" group="4" rgba="0 0 0 0"/>
                   <body name="link7" pos="0 -0.0235 0" quat="0.707107 0.707107 0 0">
                     <inertial pos="-0.00014 -0.0001 -0.00275" quat="0.5 0.5 -0.5 0.5" mass="1e-06" diaginertia="2e-07 1.1e-07 1.1e-07"/>
-                    <joint name="joint7" damping="1" armature="0.05" range="-1.55334 1.55334" actuatorfrcrange="-100 100"/>
+                    <joint name="joint7" damping="1" armature="0.05" range="-1.55334 1.55334" actuatorfrcrange="-8 8"/>
                     <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" mesh="link7_visual_0" material="link7_visual_0_mat"/>
                     <geom type="mesh" mesh="link7" group="4" rgba="0 0 0 0"/>
                   </body>
@@ -114,12 +114,12 @@
   </contact>
   <actuator>
     <!-- kp/kv are starting gains; tune after hold/vibration checks. -->
-    <position name="nero_joint1_act" joint="joint1" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-2.68781 2.68781" forcelimited="true" forcerange="-100 100"/>
-    <position name="nero_joint2_act" joint="joint2" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-1.72788 1.72788" forcelimited="true" forcerange="-100 100"/>
-    <position name="nero_joint3_act" joint="joint3" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-2.74017 2.74017" forcelimited="true" forcerange="-100 100"/>
-    <position name="nero_joint4_act" joint="joint4" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-0.994838 2.1293" forcelimited="true" forcerange="-100 100"/>
-    <position name="nero_joint5_act" joint="joint5" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-2.74017 2.74017" forcelimited="true" forcerange="-100 100"/>
-    <position name="nero_joint6_act" joint="joint6" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-0.715586 0.942479" forcelimited="true" forcerange="-100 100"/>
-    <position name="nero_joint7_act" joint="joint7" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-1.55334 1.55334" forcelimited="true" forcerange="-100 100"/>
+    <position name="nero_joint1_act" joint="joint1" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-2.68781 2.68781" forcelimited="true" forcerange="-24 24"/>
+    <position name="nero_joint2_act" joint="joint2" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-1.72788 1.72788" forcelimited="true" forcerange="-24 24"/>
+    <position name="nero_joint3_act" joint="joint3" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-2.74017 2.74017" forcelimited="true" forcerange="-16 16"/>
+    <position name="nero_joint4_act" joint="joint4" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-0.994838 2.1293" forcelimited="true" forcerange="-16 16"/>
+    <position name="nero_joint5_act" joint="joint5" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-2.74017 2.74017" forcelimited="true" forcerange="-8 8"/>
+    <position name="nero_joint6_act" joint="joint6" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-0.715586 0.942479" forcelimited="true" forcerange="-8 8"/>
+    <position name="nero_joint7_act" joint="joint7" gear="1" kp="100" kv="10" ctrllimited="true" ctrlrange="-1.55334 1.55334" forcelimited="true" forcerange="-8 8"/>
   </actuator>
 </mujoco>

@@ -1,6 +1,15 @@
 {
   "angle_margin_deg": 1.0,
-  "note": "sim angle range is ROS/SDK minus 1 deg per side; sim_velocity is URDF velocity (rad/s), enforced on qvel and ctrl slew",
+  "note": "sim angle range is ROS/SDK minus 1 deg per side; sim_velocity is URDF velocity (rad/s), enforced on qvel and ctrl slew; effort is pyAgxArm MIT t_ff clamp (N\u00b7m)",
+  "rest_qpos": [
+    0.0,
+    0.0,
+    0.0,
+    1.22,
+    0.0,
+    0.0,
+    1.31
+  ],
   "kp": 100.0,
   "kv": 10.0,
   "joints": [
@@ -10,7 +19,7 @@
       "ros_upper": 2.705261,
       "sim_lower": -2.687807707480057,
       "sim_upper": 2.687807707480057,
-      "effort": 100.0,
+      "effort": 24.0,
       "ros_velocity": 5.0,
       "sim_velocity": 5.0
     },
@@ -20,7 +29,7 @@
       "ros_upper": 1.74533,
       "sim_lower": -1.7278767074800567,
       "sim_upper": 1.7278767074800567,
-      "effort": 100.0,
+      "effort": 24.0,
       "ros_velocity": 5.0,
       "sim_velocity": 5.0
     },
@@ -30,7 +39,7 @@
       "ros_upper": 2.757621,
       "sim_lower": -2.740167707480057,
       "sim_upper": 2.740167707480057,
-      "effort": 100.0,
+      "effort": 16.0,
       "ros_velocity": 5.0,
       "sim_velocity": 5.0
     },
@@ -40,7 +49,7 @@
       "ros_upper": 2.146755,
       "sim_lower": -0.9948377074800567,
       "sim_upper": 2.129301707480057,
-      "effort": 100.0,
+      "effort": 16.0,
       "ros_velocity": 5.0,
       "sim_velocity": 5.0
     },
@@ -50,7 +59,7 @@
       "ros_upper": 2.757621,
       "sim_lower": -2.740167707480057,
       "sim_upper": 2.740167707480057,
-      "effort": 100.0,
+      "effort": 8.0,
       "ros_velocity": 5.0,
       "sim_velocity": 5.0
     },
@@ -60,7 +69,7 @@
       "ros_upper": 0.959932,
       "sim_lower": -0.7155857074800567,
       "sim_upper": 0.9424787074800567,
-      "effort": 100.0,
+      "effort": 8.0,
       "ros_velocity": 5.0,
       "sim_velocity": 5.0
     },
@@ -70,7 +79,7 @@
       "ros_upper": 1.570797,
       "sim_lower": -1.5533437074800567,
       "sim_upper": 1.5533437074800567,
-      "effort": 100.0,
+      "effort": 8.0,
       "ros_velocity": 5.0,
       "sim_velocity": 5.0
     }

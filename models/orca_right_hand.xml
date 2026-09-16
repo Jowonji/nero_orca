@@ -1,0 +1,8 @@
+<mujoco model="orca_right_hand">
+  <!-- Full official v2 tree: tower + wrist joint + fingers. No floor. -->
+  <include file="../../orca_sim/src/orca_sim/models/v2/assets/options.xml"/>
+  <include file="../../orca_sim/src/orca_sim/models/v2/mjcf/orcahand_right.mjcf"/>
+  <worldbody>
+    <include file="../../orca_sim/src/orca_sim/models/v2/mjcf/orcahand_right_body.xml"/>
+  </worldbody>
+</mujoco>

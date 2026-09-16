@@ -1,5 +1,7 @@
+datasets/
 __pycache__/
 *.py[cod]
 MUJOCO_LOG.TXT
-_preview_scene.xml
+_preview*.xml
+_preview_combined.xml
 .DS_Store
