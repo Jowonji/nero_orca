@@ -30,7 +30,7 @@ import numpy as np
 import orca_core
 from orca_core import OrcaHandConfig, OrcaJointPositions
 
-from arm_ik import ArmHint, ArmHintMirror, NeroArmIK
+from arm_ik import WristPosition, WristPositionMirror, NeroArmIK
 from limits import REST_QPOS, apply_rest_pose, nero_ctrl, step_nero
 from orca_teleop.cameras import CameraManager, OpenCVCameraConfig
 from orca_teleop.pipeline import RecordableSink, SinkObservation, _SHUTDOWN
@@ -109,7 +109,7 @@ class CombinedNeroOrcaSimSink(RecordableSink):
         self._last_hand: OrcaJointPositions | None = None
         self._last_step_time: float | None = None
         self._timestep = 0.002
-        self._arm_hints = ArmHintMirror()
+        self._wrist_positions = WristPositionMirror()
         self._arm_ik: NeroArmIK | None = None
         self._nero_cmd = np.array(REST_QPOS, dtype=np.float64)
 
@@ -132,7 +132,7 @@ class CombinedNeroOrcaSimSink(RecordableSink):
         self._map_actuators(mujoco, model)
 
         apply_rest_pose(model, data)
-        self._arm_hints.reset()
+        self._wrist_positions.reset()
         self._arm_ik = NeroArmIK(model)
         self._arm_ik.capture_rest_ee(data)
         self._nero_cmd = np.array(REST_QPOS, dtype=np.float64)
@@ -273,13 +273,13 @@ class CombinedNeroOrcaSimSink(RecordableSink):
         positions["wrist"] = 0.0
         return OrcaJointPositions(positions)
 
-    def update_arm_hint(self, landmarks: object) -> None:
-        self._arm_hints.update_from_landmarks(landmarks)
+    def update_wrist_position(self, landmarks: object) -> None:
+        self._wrist_positions.update_from_landmarks(landmarks)
 
     def go_home(self) -> None:
         assert self._model is not None and self._data is not None
         with self._lock:
-            self._arm_hints.reset()
+            self._wrist_positions.reset()
             apply_rest_pose(self._model, self._data)
             if self._arm_ik is not None:
                 self._arm_ik.capture_rest_ee(self._data)
@@ -344,7 +344,7 @@ class CombinedNeroOrcaSimSink(RecordableSink):
             self._write_hand_ctrl(action)
             prev_cmd = self._nero_cmd.copy()
             if self._arm_ik is not None:
-                self._nero_cmd = self._arm_ik.solve(self._data, self._arm_hints.snapshot())
+                self._nero_cmd = self._arm_ik.solve(self._data, self._wrist_positions.snapshot())
             now = time.perf_counter()
             if self._last_step_time is None:
                 nstep = max(1, int(round(1.0 / (self._control_hz * self._timestep))))
@@ -411,6 +411,10 @@ class CombinedNeroOrcaSimSink(RecordableSink):
             self._viewer = None
 
 
+def _fake_landmarks(wrist_position: np.ndarray) -> object:
+    return type("L", (), {"wrist_position": wrist_position})()
+
+
 def check_sink() -> None:
     sink = CombinedNeroOrcaSimSink(show_viewer=False)
     sink.connect()
@@ -449,14 +453,14 @@ def check_sink() -> None:
         raise SystemExit("index_mcp did not track the named command")
     rest_err = max(abs(float(after[i]) - math.degrees(REST_QPOS[i])) for i in range(7))
     if rest_err > 12.0:
-        raise SystemExit(f"arm drifted off rest pose without a wrist hint ({rest_err:.2f} deg)")
+        raise SystemExit(f"arm drifted off rest pose without a wrist position ({rest_err:.2f} deg)")
 
-    origin = ArmHint(wrist_image=np.array([0.50, 0.50, 0.12], dtype=np.float64))
-    moved = ArmHint(wrist_image=np.array([0.78, 0.28, 0.20], dtype=np.float64))
-    sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": origin.wrist_image})())
+    origin = WristPosition(wrist_image=np.array([0.50, 0.50, 0.12], dtype=np.float64))
+    moved = WristPosition(wrist_image=np.array([0.78, 0.28, 0.20], dtype=np.float64))
+    sink._wrist_positions.update_from_landmarks(_fake_landmarks(origin.wrist_image))
     sink.dispatch_action(OrcaJointPositions(flexed))
     for _ in range(25):
-        sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": moved.wrist_image})())
+        sink._wrist_positions.update_from_landmarks(_fake_landmarks(moved.wrist_image))
         time.sleep(0.04)
         sink.dispatch_action(OrcaJointPositions(flexed))
     after_ik = sink.get_observation().joint_state
@@ -473,22 +477,22 @@ def check_sink() -> None:
     if abs(float(after_ik[idx]) - flexed["index_mcp"]) > 12.0:
         raise SystemExit("index_mcp stopped tracking after IK")
 
-    # RGB-D hint: palm 10 cm right and 10 cm farther → EE should move ~+Y and ~+X.
+    # RGB-D wrist position: palm 10 cm right and 10 cm farther → EE should move ~+Y and ~+X.
     sink.go_home()
     ee_id = sink._arm_ik._ee
     ee_rest = np.array(sink._data.xpos[ee_id], dtype=np.float64)
     rgbd_origin = np.array([0.50, 0.50, 0.12, 0.00, 0.00, 0.60], dtype=np.float64)
     rgbd_moved = np.array([0.65, 0.50, 0.10, 0.10, 0.00, 0.70], dtype=np.float64)
-    sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": rgbd_origin})())
+    sink._wrist_positions.update_from_landmarks(_fake_landmarks(rgbd_origin))
     sink.dispatch_action(OrcaJointPositions(flexed))
     for _ in range(40):
-        sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": rgbd_moved})())
+        sink._wrist_positions.update_from_landmarks(_fake_landmarks(rgbd_moved))
         time.sleep(0.04)
         sink.dispatch_action(OrcaJointPositions(flexed))
     ee_move = np.array(sink._data.xpos[ee_id], dtype=np.float64) - ee_rest
     print("rgbd ee move (m)", np.round(ee_move, 3))
     if ee_move[0] < 0.05 or ee_move[1] < 0.05:
-        raise SystemExit("RGB-D metric hint did not move the EE toward +X/+Y")
+        raise SystemExit("RGB-D metric wrist position did not move the EE toward +X/+Y")
     img = obs.images["frontal"]
     if img.ndim != 3 or img.shape[2] != 3:
         raise SystemExit(f"bad render shape {img.shape}")

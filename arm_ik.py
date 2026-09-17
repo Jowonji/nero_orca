@@ -5,10 +5,10 @@ space. The publisher appends image-space wrist (x, y) and palm width; the first
 valid sample is the origin, later samples are a delta around the anchor EE pose.
 Orientation is held at the rest end-effector rotation (no camera-to-base calib).
 
-With an Orbbec RGB-D camera the hint also carries the palm point (X, Y, Z) in
-meters in the color camera frame. Then the delta is metric (METRIC_SCALE m of EE
-per m of hand) instead of image-gain based; samples with missing depth are
-dropped rather than mixed with the image cue.
+With an Orbbec RGB-D camera the wrist position also carries the palm point
+(X, Y, Z) in meters in the color camera frame. Then the delta is metric
+(METRIC_SCALE m of EE per m of hand) instead of image-gain based; samples with
+missing depth are dropped rather than mixed with the image cue.
 
 Smoothing / robustness:
 - One Euro filter on the image cue (low lag on fast moves, heavy smoothing at rest).
@@ -16,7 +16,7 @@ Smoothing / robustness:
 - image mode: depth uses origin_palm / palm - 1 (distance ∝ 1 / apparent size).
 - EE target speed is capped so a tracking glitch cannot yank the arm.
 - nullspace term pulls the redundant DoF toward rest so the elbow stops wandering.
-- stale hint (hand lost) holds the current pose; re-detection re-anchors without a jump.
+- stale wrist position (hand lost) holds the current pose; re-detection re-anchors without a jump.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ VERTICAL_GAIN = 0.40  # m per image height
 DEPTH_GAIN = 0.25  # m per relative distance change (0.5 = hand 50% farther)
 POS_CLAMP = np.array([0.18, 0.25, 0.20], dtype=np.float64)  # robot X, Y, Z (m)
 MAX_EE_SPEED = 0.8  # m/s
-HINT_TIMEOUT = 0.5  # s without a new MediaPipe sample → hold and re-anchor later
+WRIST_TIMEOUT = 0.5  # s without a new MediaPipe sample → hold and re-anchor later
 MIN_PALM_WIDTH = 0.02
 
 # RGB-D mode: camera frame x right, y down, z away from the camera.
@@ -59,7 +59,7 @@ NULLSPACE_GAIN = 0.05  # per IK iteration, toward REST_QPOS
 
 
 @dataclass
-class ArmHint:
+class WristPosition:
     """Image-space wrist cue: x, y in [0, 1], palm_width in [0, 1]; optional metric palm."""
 
     wrist_image: np.ndarray  # (3,)
@@ -109,13 +109,13 @@ class OneEuroFilter:
         return self._x.copy()
 
 
-class ArmHintMirror:
+class WristPositionMirror:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._latest: ArmHint | None = None
+        self._latest: WristPosition | None = None
 
     def update_from_landmarks(self, landmarks: object) -> None:
-        wrist = getattr(landmarks, "wrist_image", None)
+        wrist = getattr(landmarks, "wrist_position", None)
         if wrist is None:
             return
         arr = np.asarray(wrist, dtype=np.float64).reshape(-1)
@@ -129,11 +129,11 @@ class ArmHintMirror:
                 return  # RGB-D publisher without depth on the palm: hold, don't mix cues
             palm_xyz = arr[3:6].copy()
         with self._lock:
-            self._latest = ArmHint(
+            self._latest = WristPosition(
                 wrist_image=arr[:3].copy(), stamp=time.perf_counter(), palm_xyz=palm_xyz
             )
 
-    def snapshot(self) -> ArmHint | None:
+    def snapshot(self) -> WristPosition | None:
         with self._lock:
             return self._latest
 
@@ -193,13 +193,13 @@ class NeroArmIK:
             dtype=np.float64,
         )
 
-    def solve(self, data, hint: ArmHint | None) -> np.ndarray:
+    def solve(self, data, wrist: WristPosition | None) -> np.ndarray:
         now = time.perf_counter()
         dt = 0.0 if self._last_solve is None else min(now - self._last_solve, 0.2)
         self._last_solve = now
 
-        stale = hint is None or now - hint.stamp > HINT_TIMEOUT
-        if stale or (self._origin is not None and hint.metric != self._metric):
+        stale = wrist is None or now - wrist.stamp > WRIST_TIMEOUT
+        if stale or (self._origin is not None and wrist.metric != self._metric):
             # Hand lost (or cue type changed): hold, re-anchor on the next detection.
             if self._origin is not None:
                 self._origin = None
@@ -208,13 +208,13 @@ class NeroArmIK:
                 return self._q.copy()
 
         if self._origin is None:
-            self._metric = hint.metric
+            self._metric = wrist.metric
             self._filter = self._metric_filter if self._metric else self._image_filter
-            self._origin = hint.cue.copy()
-            self._filter.reset(hint.cue)
+            self._origin = wrist.cue.copy()
+            self._filter.reset(wrist.cue)
             return self._q.copy()
 
-        cue = self._filter(hint.cue, dt)
+        cue = self._filter(wrist.cue, dt)
         offset = self._anchor_ee + self._offset(cue) - self._rest_ee
         offset = np.clip(offset, -POS_CLAMP, POS_CLAMP)
         goal = self._rest_ee + offset
