@@ -342,6 +342,7 @@ class CombinedNeroOrcaSimSink(RecordableSink):
         with self._lock:
             self._last_hand = action
             self._write_hand_ctrl(action)
+            prev_cmd = self._nero_cmd.copy()
             if self._arm_ik is not None:
                 self._nero_cmd = self._arm_ik.solve(self._data, self._arm_hints.snapshot())
             now = time.perf_counter()
@@ -351,9 +352,14 @@ class CombinedNeroOrcaSimSink(RecordableSink):
                 nstep = int(round((now - self._last_step_time) / self._timestep))
                 nstep = int(np.clip(nstep, 1, MAX_SUBSTEPS))
             self._last_step_time = now
-            hold = nero_ctrl(self._nero_cmd)
-            for _ in range(nstep):
-                step_nero(self._model, self._data, hold)
+            # Ramp the arm command across substeps instead of a 15 Hz staircase.
+            for k in range(nstep):
+                alpha = (k + 1) / nstep
+                step_nero(
+                    self._model,
+                    self._data,
+                    nero_ctrl(prev_cmd + alpha * (self._nero_cmd - prev_cmd)),
+                )
 
     def run_loop(
         self,
@@ -449,8 +455,8 @@ def check_sink() -> None:
     moved = ArmHint(wrist_image=np.array([0.78, 0.28, 0.20], dtype=np.float64))
     sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": origin.wrist_image})())
     sink.dispatch_action(OrcaJointPositions(flexed))
-    sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": moved.wrist_image})())
-    for _ in range(12):
+    for _ in range(25):
+        sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": moved.wrist_image})())
         time.sleep(0.04)
         sink.dispatch_action(OrcaJointPositions(flexed))
     after_ik = sink.get_observation().joint_state
@@ -466,6 +472,23 @@ def check_sink() -> None:
         raise SystemExit("wrist-image IK did not move the arm off rest")
     if abs(float(after_ik[idx]) - flexed["index_mcp"]) > 12.0:
         raise SystemExit("index_mcp stopped tracking after IK")
+
+    # RGB-D hint: palm 10 cm right and 10 cm farther → EE should move ~+Y and ~+X.
+    sink.go_home()
+    ee_id = sink._arm_ik._ee
+    ee_rest = np.array(sink._data.xpos[ee_id], dtype=np.float64)
+    rgbd_origin = np.array([0.50, 0.50, 0.12, 0.00, 0.00, 0.60], dtype=np.float64)
+    rgbd_moved = np.array([0.65, 0.50, 0.10, 0.10, 0.00, 0.70], dtype=np.float64)
+    sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": rgbd_origin})())
+    sink.dispatch_action(OrcaJointPositions(flexed))
+    for _ in range(40):
+        sink._arm_hints.update_from_landmarks(type("L", (), {"wrist_image": rgbd_moved})())
+        time.sleep(0.04)
+        sink.dispatch_action(OrcaJointPositions(flexed))
+    ee_move = np.array(sink._data.xpos[ee_id], dtype=np.float64) - ee_rest
+    print("rgbd ee move (m)", np.round(ee_move, 3))
+    if ee_move[0] < 0.05 or ee_move[1] < 0.05:
+        raise SystemExit("RGB-D metric hint did not move the EE toward +X/+Y")
     img = obs.images["frontal"]
     if img.ndim != 3 or img.shape[2] != 3:
         raise SystemExit(f"bad render shape {img.shape}")
