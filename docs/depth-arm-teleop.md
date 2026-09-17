@@ -25,7 +25,7 @@
 
 코드 경로:
 
-`orca_teleop/.../mediapipe/publisher.py` (손목 위치 생성) → gRPC → `orca_teleop/.../ingress/server.py` (`HandLandmarks.wrist_position`, 3개 또는 6개 값) → `sim_sink.py` (`update_wrist_position`) → `arm_ik.py` (`WristPositionMirror`, `NeroArmIK`)
+`orca_teleop/.../mediapipe/publisher.py` (손목 위치 생성) → gRPC → `orca_teleop/.../ingress/server.py` (`HandLandmarks.wrist_position`, 3개 또는 6개 값) → `combined_sink.py` (`update_wrist_position`) → `arm_ik.py` (`WristPositionMirror`, `NeroArmIK`)
 
 ## 2. 기존 파이프라인만으로는 팔을 움직일 수 없는 이유
 
@@ -114,7 +114,7 @@ MediaPipe가 찾은 픽셀 위치에서 depth 이미지 값을 **읽어오는** 
 
 현재는 **위치만** 따라가고, 손목 방향(회전)은 기본 자세로 고정한다. 방향까지 따라가려면 카메라–로봇 캘리브레이션이 필요하다.
 
-시뮬 쪽에서는 IK 결과가 15 Hz 계단처럼 바뀌지 않도록 물리 substep 사이에서 이전 명령과 새 명령을 선형 보간한다 (`sim_sink.py`).
+시뮬 쪽에서는 IK 결과가 15 Hz 계단처럼 바뀌지 않도록 물리 substep 사이에서 이전 명령과 새 명령을 선형 보간한다 (`combined_sink.py`).
 
 ## 6. 두 모드 비교
 
