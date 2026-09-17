@@ -14,6 +14,10 @@ Arm cue comparison: add ``--depth off`` (Orbbec color, image-only palm-width cue
 ``--depth orbbec`` (metric RGB-D palm point). With an explicit ``--depth`` and no
 ``--root``/``--repo-id`` the dataset goes to ``datasets/nero-orca-sim-mediapipe-depth-<mode>``
 so the runs stay side by side.
+
+Real hardware (see ``hardware.py``; check joints with ``mirror_real.py`` first): add
+``--nero-output shadow|real`` and/or ``--orca-output shadow|real``. ``shadow`` reads the
+robot and shows the command as a ghost in the MuJoCo viewer without sending it.
 """
 
 from __future__ import annotations
