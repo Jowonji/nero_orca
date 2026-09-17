@@ -5,3 +5,6 @@ MUJOCO_LOG.TXT
 _preview*.xml
 _preview_combined.xml
 .DS_Store
+
+# Orbbec SDK runtime logs
+Log/
