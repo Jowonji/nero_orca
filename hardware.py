@@ -256,6 +256,11 @@ class NeroOutput:
         target = base + step
         err = float(np.max(np.abs(target - q)))
         if err > NERO_MAX_TRACKING_ERROR:
+            # base may be stale (e.g. an unreached move_home target); re-anchor on
+            # the arm's actual position so the next call steps from where it
+            # really is instead of holding forever against a gap that can
+            # never close (base was frozen and never advances while held).
+            self._last_sent = None
             return self._hold(f"Nero tracking error {np.degrees(err):.1f} deg")
         self._device.send_q(target)
         self._last_sent = target
