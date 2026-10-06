@@ -72,11 +72,13 @@ HOME_HAND_STEPS = 50
 
 
 def _orca_core_config_path(hand: str = "right") -> Path:
-    name = f"orcahand-{hand}"
-    candidates = [
-        Path(orca_core.__file__).resolve().parent / "models" / "v2" / name / "config.yaml",
-        ROOT.parent / "orca_core" / "orca_core" / "models" / "v2" / name / "config.yaml",
+    # orca_core releases differ: orcahand-right (newer) vs orcahand_right (pinned in uv.lock).
+    names = [f"orcahand-{hand}", f"orcahand_{hand}"]
+    roots = [
+        Path(orca_core.__file__).resolve().parent / "models" / "v2",
+        ROOT.parent / "orca_core" / "orca_core" / "models" / "v2",
     ]
+    candidates = [root / name / "config.yaml" for root in roots for name in names]
     for path in candidates:
         if path.exists():
             return path
@@ -567,6 +569,11 @@ class CombinedNeroOrcaSink(RecordableSink):
             if vis is not None:
                 try:
                     vis.close()
+                    # Wait for mujoco's render thread to exit; otherwise glfw.terminate() at
+                    # interpreter exit races it and segfaults on the WSL d3d12 GL driver.
+                    deadline = time.perf_counter() + 2.0
+                    while vis.is_running() and time.perf_counter() < deadline:
+                        time.sleep(0.02)
                 except Exception:
                     pass
         except Exception:
