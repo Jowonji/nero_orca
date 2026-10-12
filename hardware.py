@@ -145,6 +145,12 @@ class OrcaCoreHand:
         if not ok:
             raise RuntimeError(f"Orca hand failed to connect: {message}")
         logger.info("Orca hand connected (%s)", message)
+        # Feetech: one GroupSyncRead (~5 ms) instead of 51 per-register reads (~40 ms).
+        # Same scaling, and it falls back to per-motor reads on failure.
+        client = getattr(self._hand, "_motor_client", None)
+        if hasattr(client, "read_pos_vel_cur_sync"):
+            client.read_pos_vel_cur = client.read_pos_vel_cur_sync
+            logger.info("Orca hand feedback: Feetech sync read")
         if not self._hand.calibrated:
             logger.warning(
                 "Orca hand is NOT calibrated (%s): joint readings are unreliable, and "

@@ -477,8 +477,11 @@ class CombinedNeroOrcaSink(RecordableSink):
                 self._nero_cmd = self._arm_ik.solve(self._data, self._wrist_positions.snapshot())
             self._nero.send(self._nero_cmd)
             self._orca.send(self._hand_command(action))
-            self._nero.refresh()
-            self._orca.refresh()
+        # Hardware reads (Orca serial ~40 ms) stay outside the lock so the recorder's
+        # get_observation() is not starved by the back-to-back teleop loop.
+        self._nero.refresh()
+        self._orca.refresh()
+        with self._lock:
             self._advance(prev_cmd)
 
     def refresh(self) -> None:
