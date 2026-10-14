@@ -38,7 +38,7 @@ import numpy as np
 import orca_core
 from orca_core import OrcaHandConfig, OrcaJointPositions
 
-from arm_ik import NeroArmIK, WristPosition, WristPositionMirror
+from arm_ik import PICK_ORCA_WRIST_DEG, NeroArmIK, WristPosition, WristPositionMirror
 from hardware import (
     NERO_DEFAULT_SPEED_PERCENT,
     NERO_MAX_JOINT_SPEED,
@@ -177,6 +177,8 @@ class CombinedNeroOrcaSink(RecordableSink):
         self._show_viewer = bool(show_viewer)
         self._mirror_lateral = bool(mirror_lateral)
         self._pick_place = bool(pick_place)
+        # The teleop never drives the Orca wrist; it is held at this angle (deg).
+        self._orca_wrist_deg = PICK_ORCA_WRIST_DEG if self._pick_place else 0.0
         self._home_q = np.array(REST_QPOS, dtype=np.float64)
         if nero_output != "sim" and nero_device is None:
             nero_device = PyAgxNero(channel=nero_can)
@@ -341,7 +343,7 @@ class CombinedNeroOrcaSink(RecordableSink):
                 self._ghost_data.qpos[adr] = q
             hand = self._last_hand.data if self._last_hand is not None else {}
             for jid, adr in self._orca_qpos_adr.items():
-                deg = 0.0 if jid == "wrist" else float(hand.get(jid) or 0.0)
+                deg = self._orca_wrist_deg if jid == "wrist" else float(hand.get(jid) or 0.0)
                 self._ghost_data.qpos[adr] = math.radians(deg)
 
     def _viewer_loop(self) -> None:
@@ -453,7 +455,7 @@ class CombinedNeroOrcaSink(RecordableSink):
     def home_position(self) -> OrcaJointPositions:
         assert self._hand_config is not None
         positions = dict(self._hand_config.neutral_position)
-        positions["wrist"] = 0.0
+        positions["wrist"] = self._orca_wrist_deg
         return OrcaJointPositions(positions)
 
     def update_wrist_position(self, landmarks: object) -> None:
@@ -483,7 +485,7 @@ class CombinedNeroOrcaSink(RecordableSink):
         orca = np.empty(len(self._orca_joint_ids), dtype=np.float64)
         for i, jid in enumerate(self._orca_joint_ids):
             if jid == "wrist":
-                orca[i] = 0.0
+                orca[i] = self._orca_wrist_deg
             else:
                 orca[i] = float(hand_action.data.get(jid, 0.0))
         return np.concatenate([nero, orca]).astype(np.float32)
@@ -530,14 +532,14 @@ class CombinedNeroOrcaSink(RecordableSink):
 
     def _hand_command(self, action: OrcaJointPositions) -> OrcaJointPositions:
         positions = dict(action.data)
-        positions["wrist"] = 0.0
+        positions["wrist"] = self._orca_wrist_deg
         return OrcaJointPositions(positions)
 
-    def _write_hand_ctrl(self, positions_deg: dict[str, float], force_wrist_zero: bool) -> None:
+    def _write_hand_ctrl(self, positions_deg: dict[str, float], force_wrist: bool) -> None:
         assert self._data is not None
         for jid, aid in self._orca_act_id.items():
-            if jid == "wrist" and force_wrist_zero:
-                self._data.ctrl[aid] = 0.0
+            if jid == "wrist" and force_wrist:
+                self._data.ctrl[aid] = math.radians(self._orca_wrist_deg)
                 continue
             deg = positions_deg.get(jid)
             self._data.ctrl[aid] = math.radians(float(deg or 0.0))
@@ -589,7 +591,7 @@ class CombinedNeroOrcaSink(RecordableSink):
 
         nero_q = self._nero.q
         hand = self._orca.deg if self._orca.hardware else (self._last_hand or self.home_position()).data
-        self._write_hand_ctrl(hand or {}, force_wrist_zero=not self._orca.hardware)
+        self._write_hand_ctrl(hand or {}, force_wrist=not self._orca.hardware)
         for k in range(nstep):
             if self._nero.hardware:
                 target = nero_q if nero_q is not None else prev_cmd

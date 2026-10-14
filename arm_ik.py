@@ -31,6 +31,7 @@ import numpy as np
 from limits import JOINTS, REST_QPOS
 
 EE_BODY = "orca_right_R-Carpals_8d1f1041"
+ORCA_WRIST_JOINT = "orca_right_wrist"
 # Image +x (right) → robot +Y; image +y (down) → robot -Z; hand farther → robot +X.
 IMAGE_ASPECT = 640.0 / 480.0
 LATERAL_GAIN = 0.40  # m per image height
@@ -44,14 +45,23 @@ MAX_EE_SPEED = 0.8  # m/s
 # Pick-and-place mode (--pick-place): J3/J5/J6 locked at 0 so J2, J4, J7 share one axis,
 # and J7 = PICK_PITCH - J2 - J4 keeps the hand at one tilt (fingers ~45 deg down). J1, J2, J4
 # set the hand position: a 3-DoF action that is easier to learn. Fixed tilt shrinks the reach,
-# so the home sits mid-workspace in front of the robot instead of at REST_QPOS.
+# so the home sits mid-workspace in front of the robot instead of at REST_QPOS. (A flat palm,
+# by the arm or by the Orca wrist, and a +30 deg Orca wrist were tried and not kept.)
 PICK_LOCKED = (2, 4, 5)  # J3, J5, J6 indices
 PICK_PITCH = math.radians(135.0)
+PICK_ORCA_WRIST_DEG = 0.0  # the teleop never drives the Orca wrist; it is held here
 PICK_HOME_EE = np.array([-0.52, 0.0, 0.23], dtype=np.float64)  # m; robot faces -X
-# Box around home (m). Table = robot base plane; the hand reaches 9.8 cm below the EE body
-# at this tilt, so z >= 0.12 keeps the fingertips ~2 cm above the table.
-PICK_CLAMP_LO = np.array([-0.10, -0.25, -0.11], dtype=np.float64)
+# Box around home (m). Table = robot base plane; at this tilt the hand reaches 9.8 cm below
+# the EE body with open fingers and 11.9 cm with curled ones, so z >= 0.14 keeps it >= 2 cm
+# above the table.
+PICK_CLAMP_LO = np.array([-0.10, -0.25, -0.09], dtype=np.float64)
 PICK_CLAMP_HI = np.array([0.10, 0.25, 0.11], dtype=np.float64)
+# The box's far corners (62 cm out, 25 cm aside) are beyond reach, and aiming there let the
+# closest pose sag the hand toward the table. So the target's horizontal distance from the
+# base is capped too, 1.5 cm inside the reachable edge, which shrinks with height
+# (69.2 cm at EE z 14 cm, 60.4 cm at 34 cm; elbow >= 15 deg). Reach starts at 38 cm.
+PICK_MAX_RADIUS = ((0.14, 0.675), (0.34, 0.59))  # (EE z, max horizontal radius) in m
+PICK_MIN_RADIUS = 0.40  # m
 # Slower target so the recorded action is one the arm actually follows (at 0.8 m/s joint 2
 # lagged up to 41 deg and tripped the tracking-error hold).
 PICK_MAX_EE_SPEED = 0.3  # m/s
@@ -81,6 +91,19 @@ DAMPING = 1.5e-3
 STEP_CLIP = 0.12
 IK_ITERS = 10
 NULLSPACE_GAIN = 0.05  # per IK iteration, toward REST_QPOS
+
+
+def _clamp_radius(goal: np.ndarray) -> np.ndarray:
+    """Pull a pick-mode target inside the reachable horizontal radius for its height."""
+    (z0, r0), (z1, r1) = PICK_MAX_RADIUS
+    r_max = float(np.interp(goal[2], [z0, z1], [r0, r1]))
+    r = float(np.hypot(goal[0], goal[1]))
+    r_clamped = float(np.clip(r, PICK_MIN_RADIUS, r_max))
+    if r == r_clamped or r == 0.0:
+        return goal
+    out = goal.copy()
+    out[:2] *= r_clamped / r
+    return out
 
 
 @dataclass
@@ -179,6 +202,10 @@ class NeroArmIK:
         self._ee = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, EE_BODY)
         if self._ee < 0:
             raise RuntimeError(f"IK end-effector body missing: {EE_BODY}")
+        # EE_BODY sits after the Orca wrist, so the wrist angle moves it (2.6 cm at +30 deg).
+        # Pick mode evaluates the hand at PICK_ORCA_WRIST_DEG regardless of the sink's state.
+        wrist = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, ORCA_WRIST_JOINT)
+        self._wrist_adr = int(model.jnt_qposadr[wrist]) if wrist >= 0 else None
         self._lo = np.array([spec["sim_lower"] for spec in JOINTS], dtype=np.float64)
         self._hi = np.array([spec["sim_upper"] for spec in JOINTS], dtype=np.float64)
         self._pick = bool(pick_place)
@@ -204,10 +231,19 @@ class NeroArmIK:
         """Arm pose the teleop starts from: REST_QPOS, or the pick-and-place home."""
         return self._rest_q.copy()
 
+    def _pin_wrist(self, data) -> float | None:
+        """Pick mode: set the Orca wrist to PICK_ORCA_WRIST_DEG; return the previous value."""
+        if not self._pick or self._wrist_adr is None:
+            return None
+        previous = float(data.qpos[self._wrist_adr])
+        data.qpos[self._wrist_adr] = math.radians(PICK_ORCA_WRIST_DEG)
+        return previous
+
     def _pick_home_q(self) -> np.ndarray:
         import mujoco
 
         data = mujoco.MjData(self._model)
+        self._pin_wrist(data)
         self._q = np.array(REST_QPOS, dtype=np.float64)
         self._q[1], self._q[3] = 0.5, 1.5  # elbow-up seed in front of the robot
         for _ in range(40):
@@ -223,6 +259,7 @@ class NeroArmIK:
         import mujoco
 
         data.qpos[:7] = self._rest_q
+        self._pin_wrist(data)
         mujoco.mj_forward(self._model, data)
         self._rest_ee = np.array(data.xpos[self._ee], dtype=np.float64)
         self._anchor_ee = self._rest_ee.copy()
@@ -273,6 +310,8 @@ class NeroArmIK:
         offset = self._anchor_ee + self._offset(cue) - self._rest_ee
         offset = np.clip(offset, self._clamp_lo, self._clamp_hi)
         goal = self._rest_ee + offset
+        if self._pick:
+            goal = _clamp_radius(goal)
 
         step = goal - self._target
         max_step = self._max_ee_speed * dt
@@ -329,6 +368,7 @@ class NeroArmIK:
         import mujoco
 
         q_save = np.array(data.qpos[:7], dtype=np.float64)
+        wrist_save = self._pin_wrist(data)
         q = self._q.copy()
         q[list(PICK_LOCKED)] = 0.0
         act = [0, 1, 3]
@@ -360,4 +400,6 @@ class NeroArmIK:
             return self._q.copy()
         finally:
             data.qpos[:7] = q_save
+            if wrist_save is not None:
+                data.qpos[self._wrist_adr] = wrist_save
             mujoco.mj_forward(self._model, data)
