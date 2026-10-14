@@ -83,10 +83,10 @@ MediaPipe가 찾은 픽셀 위치에서 depth 이미지 값을 **읽어오는** 
    | X 증가 (오른쪽) | +Y |
    | Y 증가 (아래) | −Z (아래) |
 
-   RGB-D 모드는 `METRIC_SCALE`(기본 1.0, 손 1 m당 EE 1 m)을 곱한다.
+   RGB-D 모드는 `METRIC_SCALE`(1.5, 손 1 m당 EE 1.5 m. 2026-10-14에 1.0에서 변경)을 곱한다. 카메라가 조작자를 마주 보면 `--mirror-lateral`로 Y 부호를 뒤집는다.
 3. 안정화:
    - **One Euro 필터**: 가만히 있을 때는 강하게 부드럽게 하고, 빠르게 움직일 때는 지연을 줄인다. 모드별로 파라미터가 따로 있다(`FILTER_*`, `METRIC_FILTER_*`).
-   - **이동 한계** `POS_CLAMP`: 기본 자세 기준 X ±18 cm, Y ±25 cm, Z ±20 cm.
+   - **이동 한계** `POS_CLAMP`: 기본 자세 기준 X ±25 cm, Y ±30 cm, Z ±25 cm (2026-10-14 확대). `--pick-place` 모드는 별도 범위 ([native-linux-recording-setup.md](native-linux-recording-setup.md) §9).
    - **최대 속도** `MAX_EE_SPEED` 0.8 m/s: 인식이 튀어도 팔이 갑자기 휘둘리지 않게 한다.
    - **손을 놓치면**(0.5 s 동안 새 손목 위치 없음, `WRIST_TIMEOUT`) 현재 자세를 유지하고, 다시 인식되면 그 자리를 새 기준점으로 잡아 튀지 않게 이어간다.
 

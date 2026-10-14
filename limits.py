@@ -64,11 +64,11 @@ def rest_ctrl() -> dict[str, float]:
     return nero_ctrl(REST_QPOS)
 
 
-def apply_rest_pose(model, data) -> None:
-    """Put Nero joints and their actuators at the official rest pose."""
+def apply_rest_pose(model, data, qpos=None) -> None:
+    """Put Nero joints and their actuators at ``qpos`` (default: the official rest pose)."""
     import mujoco
 
-    for spec, q in zip(JOINTS, REST_QPOS):
+    for spec, q in zip(JOINTS, REST_QPOS if qpos is None else qpos):
         jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, spec["joint"])
         if jid >= 0:
             data.qpos[int(model.jnt_qposadr[jid])] = q

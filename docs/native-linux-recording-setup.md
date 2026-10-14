@@ -6,7 +6,7 @@
 | 범위 | Dell 노트북 Ubuntu 듀얼부팅에서 실물 Nero 팔 + Orca 손 + Orbbec 2대로 `record_dataset.py` 녹화 (shadow 검증 → real 단계 시작) |
 | 환경 | Ubuntu 24.04, 커널 7.0, X11, Intel Iris Xe, Python 3.12 (`orca_teleop/.venv`, uv), lerobot 0.4.4, torch 2.10 |
 | 선행 | [wsl-lerobot-recording-setup.md](wsl-lerobot-recording-setup.md), [real-robot-bringup.md](real-robot-bringup.md), [jetson-webcam-teleop-first-run.md](jetson-webcam-teleop-first-run.md) |
-| 결과 | shadow 10초 에피소드 150/150 프레임, 실물 센서값 저장 확인. real 모드(팔만, 속도 10%) 실행 시작 |
+| 결과 | shadow 150/150 프레임, 실물 센서값 저장. Orbbec 깊이 모드, 좌우 반전, pick-and-place 3자유도 모드 추가. 팔만 real(속도 20%)로 40초 에피소드: 추종 오차 평균 0.4 cm, 안전장치 작동 0회 |
 
 ---
 
@@ -19,6 +19,9 @@
   - `observation.state`가 MuJoCo 모델값이라 손 MCP가 -24.4°에서 잘림 → 하드웨어 모드는 센서값 저장
   - 녹화가 15 Hz를 못 채움 (10초에 75~121프레임) → retargeter 속도 제한
 - 화면 배치: 웹캠 창은 왼쪽 위, MuJoCo 창은 오른쪽에 사이드 패널 없이, 로봇에 맞춘 시점으로 뜬다 (§5).
+- Orbbec 깊이 모드를 살렸다 (시리얼 지정 + 레이저 3단계, §8). 팔 이동은 손 1 cm → 1.5 cm, 좌우 반전 옵션 (§9.1).
+- `--pick-place`: 손목 쪽 관절을 고정한 3자유도 팔 (§9.2). 팔만 real 40초 에피소드에서 손목 위치 오차 평균 0.4 cm, 안전장치 0회 (§10).
+- CAN 어댑터가 반복해서 끊기고, CAN 선이 빠졌을 때 팔이 쓰러졌다. 이슈 목록은 §11.
 
 ---
 
@@ -199,15 +202,113 @@ print(ds.num_episodes, ds.num_frames, ds[0]['observation.images.data'].shape)"
 | 2. 손도 real | `--orca-output real` | 손가락을 천천히 쥐었다 폈을 때 실물 손이 따라오는지 |
 | 3. 수집 | `--task`, `--num-episodes`, `--repo-id`, `--root`. 속도는 10에서 20까지 천천히 | 이어 붙일 때는 `--overwrite`를 뺀다 |
 
-- `--episode-end space`: 스페이스바로 저장하고 다음 에피소드, `q`/Esc로 종료.
-- 2026-10-14 14:09에 1단계(팔만 real, 10%)를 실행했다. 결과는 아직 기록하지 않음.
+- `--episode-end space`: **녹화를 실행한 터미널을 클릭한 뒤** 스페이스바로 저장하고 다음 에피소드, `q`/Esc로 저장 후 종료. 웹캠 창이 활성화된 상태에서 `q`를 누르면 손 추적 프로세스만 꺼지고 녹화는 저장되지 않는다 (§11).
+- 실제로 진행한 단계와 결과는 §10.
 
 ---
 
-## 8. 남은 일
+## 8. Orbbec 깊이 모드
 
-1. real 1~2단계 결과 기록.
-2. Orca sync read 응답 누락 시 이전 값 유지 (WSL 문서 §8에서 이어짐).
-3. 네이티브 Linux에서 `--depth auto` 확인.
-4. `orca_teleop` 테스트 중 기존 실패 8개, 에러 2개 (`test_orca_hand_sink_go_home`, `test_recording_ready.py` 다수). 이번 수정 전에도 같았다.
-5. `combined_sink.py --check`의 `index_mcp did not track the named command` (sim 손 추종 검사). 이번 수정 전에도 실패했다.
+- `--depth webcam`은 Orbbec을 일반 웹캠으로만 쓴다. 팔 이동량을 화면 비율로 계산해서 카메라를 멀리 둘수록 좁게 움직인다.
+- `--depth orbbec`은 손바닥의 실제 3D 위치(m)를 쓴다. 손 1 cm → 팔 1.5 cm (`METRIC_SCALE` 1.5), 카메라 거리와 무관하다.
+
+필요한 인자:
+
+| 인자 | 이유 |
+| --- | --- |
+| `--teleop-orbbec-serial CP0H95300129` | Orbbec이 2대라 기본 `Pipeline()`은 첫 번째 장치를 연다 (녹화용 카메라일 수 있음). 시리얼을 주면 SDK가 V4L2 백엔드를 쓴다. 기본 libuvc 백엔드는 uvcvideo를 떼어 가서 다른 Orbbec의 `/dev/video` 색상 노드가 사라졌다 (재연결로 복구) |
+| `--teleop-orbbec-laser-level 3` | 색상+깊이에 IR 레이저 5~6단계면 카메라가 0.1초 만에 USB에서 빠졌다 (버스 전원 허브의 전력 부족 추정. 깊이만, 또는 레이저 끔은 정상). 1~4단계 정상, 중앙 깊이 유효 92~94%로 차이 없음 |
+
+검증: 데이터 카메라를 OpenCV로 동시에 읽으면서 15초 — RGB-D 28.9 fps(중앙 유효 91%), 데이터 카메라 29.1 fps, 리셋 없음.
+
+---
+
+## 9. 팔 이동 매핑 변경
+
+### 9.1 범위와 좌우 반전
+
+- `METRIC_SCALE` 1.0 → 1.5, `POS_CLAMP` ±18/25/20 → ±25/30/25 cm (모델 중력 부하 최대 76%, 팔을 멀리 뻗고 올린 모서리만 미도달).
+- `--mirror-lateral`: 손 추적 카메라가 조작자를 마주 보면 거울상이라 좌우가 반대다. 로봇 Y 부호만 뒤집는다.
+- **시작 기준점**: 손이 처음 인식된 위치가 시작 자세에 대응한다. 아래에서 손을 들어 올리며 화면에 넣으면 그 낮은 위치가 기준이 되어 더 내려가지 못한다. 손을 높게 들고 시작하거나, 손을 0.5초 이상 화면 밖으로 뺐다가(팔 정지) 다시 보여 주면 그 위치가 새 기준점이 된다 (클러치).
+
+### 9.2 pick-and-place 모드 (`--pick-place`)
+
+학습할 action을 단순하게 하려고 손 방향을 고정한 3자유도 팔로 쓴다 (`arm_ik.py`의 `PICK_*`).
+
+| 항목 | 값 |
+| --- | --- |
+| 고정 관절 | J3(위팔 비틀기), J5(아래팔 비틀기), J6(손목 좌우) = 0. 이때 J2, J4, J7 축이 평행해진다 |
+| 움직이는 관절 | J1, J2, J4로 손 위치. J7 = 135° − J2 − J4로 손 기울기 고정 (손끝 약 45° 아래) |
+| 시작 자세 | 로봇 앞 52 cm, 손바닥 중심(carpals) 높이 23 cm. 관절 J2 24°, J4 80°, J7 32° |
+| 범위 (시작 자세 기준) | 앞뒤 ±10 cm, 좌우 ±25 cm, 상하 ±11 cm. 책상 = 로봇 받침 면. 손 최저점이 carpals보다 9.8 cm 아래라 맨 아래에서도 손이 책상 위 2.2 cm |
+| 팔꿈치 | J4 ≥ 15°, J2+J4는 J7이 한계 안에 있도록 제한 |
+| 속도 | 손목 목표 0.3 m/s, 관절 명령 0.4 rad/s (전 관절 같은 비율로 줄여 J7 관계 유지). `--nero-speed 20` |
+
+- 손 기울기를 고정하면 닿는 범위가 좁아진다. 대기 자세(`REST_QPOS`) 기울기로 고정하면 앞뒤 28 × 높이 16 cm뿐이라, 기울기와 시작 자세를 새로 정했다. 기울기별 범위: 90°(수평) 앞 0~50 × 높이 42~64 cm, 135° 앞 42~62 × 높이 0~34 cm, 150° 앞 38~60 × 높이 0~28 cm.
+- J1이 돌면 손도 같이 좌우를 향한다.
+- `go_home()`(2번째 에피소드부터)과 시작 시 `move_home`도 이 시작 자세로 간다. `limits.apply_rest_pose()`가 자세를 인자로 받는다.
+
+---
+
+## 10. real 모드 결과 (팔만 real, 손 sim, 깊이 모드)
+
+| 실행 | 설정 | 결과 |
+| --- | --- | --- |
+| 14:42 | 자유 모드, 속도 10%, 관절 0.6 rad/s | 추종 오차 안전장치 2회. 빠른 동작에서 J2가 명령(최대 76°/s)을 못 따라가 최대 41° 차이 |
+| 15:11 | pick-place 첫 버전 | **팔꿈치가 반대로 꺾임** (J4 −24°, J7 89° 한계). 범위 끝에서 IK가 J4를 0° 너머로 넘김. 안전장치 12회 → J4 ≥ 15° 제한 추가 |
+| 15:15 | 팔꿈치 제한, 속도 10%, 0.6 rad/s | 꺾임 해결 (J4 최소 32°). 안전장치 5회: 명령 J1 33°/s를 실물이 17°/s로만 따라감 → 0.4 rad/s, 속도 20% |
+| 15:18 | 속도 20%, 0.4 rad/s | 끊기기 전 22초: 관절 오차 평균 0.3~0.5°, 손목 0.5 cm. CAN 어댑터 끊김으로 이후 무효 (§11) |
+| **15:22** | 같은 설정, CAN 포트 변경 | **40.5초, 안전장치 0회. 관절 오차 평균 0.2~0.4°(최대 4.1°), 손목 위치 평균 0.4 cm, 상위 5% 1.2 cm, 최대 4.6 cm. 지연 133 ms.** 범위 앞뒤 ±11, 좌우 −22~+24, 상하 ±11 cm 사용, J4 최소 15° |
+
+수집 명령 (손 real은 `--orca-output real`, 아직 미검증):
+
+```bash
+cd ~/workspace/nero_orca
+../orca_teleop/.venv/bin/python record_dataset.py \
+  --local --source mediapipe --show-video \
+  --depth orbbec \
+  --teleop-orbbec-serial CP0H95300129 \
+  --teleop-orbbec-laser-level 3 \
+  --mirror-lateral --pick-place \
+  --camera data:14 \
+  --nero-output real --nero-speed 20 \
+  --orca-output sim \
+  --model-path config/orcahand_right/config.yaml \
+  --urdf-path ../orcahand_description/v1/models/urdf/orcahand_right.urdf \
+  --repo-id local/nero-pick-real-test \
+  --root datasets/nero-pick-real-test \
+  --task "pick real arm test" \
+  --fps 15 --num-episodes 1 --episode-end space \
+  --overwrite 2>&1 | tee record_real.log
+```
+
+`--camera data:N`의 N은 매번 §3의 명령으로 확인한다 (오늘 18 → 12 → 14로 바뀜).
+
+---
+
+## 11. 이슈 기록
+
+| 이슈 | 증상 | 원인 / 조치 |
+| --- | --- | --- |
+| **CAN 어댑터 반복 끊김** | 오늘 6회 이상 USB 연결 해제. 15:18에는 녹화 중 `failed to xmit URB: -EPIPE` 후 연결 해제 → `stale Nero joint feedback`로 명령 정지, 에피소드 뒷부분 무효 | 허브 USB 2.0 쪽 포트 `3-3.1.3.1`에서 반복. `3-3.1.3.4`로 옮긴 뒤 15:22 녹화는 끊김 없음. 케이블 교체, 전원 공급 허브 검토 필요 |
+| **CAN 선이 빠지자 팔이 쓰러짐** | enable(CAN 제어) 상태에서 선 정리 중 CAN 선을 뽑자 팔이 힘이 빠져 쓰러짐 | 컨트롤러가 통신 끊김에 토크를 끈 것으로 추정. 선 작업 전에 팔을 받치거나 책상에 손을 얹혀 둔 뒤 웹에서 disable. 복구: 손을 책상에 얹혀 받친 상태에서 CAN 재연결 → real 실행의 `move_home`(경로상 손이 책상에서 멀어지는지 모델로 확인) |
+| CAN 재연결 후 `can0` DOWN | 어댑터를 다시 꽂으면 `Device 'can0' does not exist` 또는 DOWN | USB가 새로 잡힐 때마다 `sudo ip link set can0 up type can bitrate 1000000` 다시 실행 + External CAN Push. 어댑터를 꽂은 **뒤에** 실행해야 한다 |
+| External CAN Push 풀림 | 피드백이 1분쯤 오다가 0 | 웹에서 다시 누름 |
+| 웹캠 창에서 `q` | 손 추적만 종료, 녹화는 저장되지 않고 끝남 | 키는 녹화 터미널을 클릭한 뒤 누른다 |
+| `/dev/video` 번호 변경 | 카메라 재연결·SDK 시험마다 번호가 바뀜 (18 → 12 → 14, 손 추적 10 → 18 → 26) | 데이터 카메라는 녹화 전에 확인. 손 추적은 시리얼로 지정 |
+| Orbbec 색상+깊이 리셋 | 레이저 5~6단계에서 카메라가 USB에서 빠짐 | 레이저 3단계 (§8). 전원 공급 허브면 재확인 |
+| SDK가 다른 카메라의 드라이버를 떼어 감 | 시험 후 두 Orbbec의 MJPG 노드가 사라짐 | 시리얼 지정 시 V4L2 백엔드 (§8). 이미 떼어 갔으면 카메라 재연결 |
+| pick-place 팔꿈치 꺾임 | §10의 15:11 | J4 ≥ 15°, J7 한계로 J2+J4 제한. 무작위 목표 6000스텝 시뮬레이션에서 꺾임 없음 |
+| 데이터셋 `frontal` 영상 | `observation.images.frontal`은 MuJoCo 렌더 | 실물 정책 학습에는 쓰지 않는 것이 좋다. 저장 끄는 옵션은 아직 없음 |
+
+---
+
+## 12. 남은 일
+
+1. **손 real** (`--orca-output real`) 단계 시험.
+2. 관찰(데이터) 카메라 위치 확정: 모든 에피소드와 실행 시 같은 위치, 작업 영역·물체·손이 다 보이고 조작자는 안 보이게. 로봇 뒤쪽 위에서 약 45° 내려다보는 배치가 후보. 손목 카메라 추가 검토.
+3. CAN 어댑터 연결 안정화 (케이블, 포트, 전원 공급 허브).
+4. 실물 수집 때 `frontal`(MuJoCo 렌더) 저장 끄기 옵션.
+5. Orca sync read 응답 누락 시 이전 값 유지 (WSL 문서 §8에서 이어짐).
+6. `orca_teleop` 테스트 중 기존 실패 8개, 에러 2개 (`test_orca_hand_sink_go_home`, `test_recording_ready.py` 다수). 이번 수정 전에도 같았다.
+7. `combined_sink.py --check`의 `index_mcp did not track the named command` (sim 손 추종 검사). 이번 수정 전에도 실패했다.

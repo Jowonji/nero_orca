@@ -165,6 +165,8 @@ class CombinedNeroOrcaSink(RecordableSink):
         orca_model_path: str | None = None,
         nero_device: NeroDevice | None = None,
         orca_device: OrcaDevice | None = None,
+        mirror_lateral: bool = False,
+        pick_place: bool = False,
     ) -> None:
         self._scene_xml = Path(scene_xml) if scene_xml is not None else SCENE_XML
         self._camera_config = camera_config or SimCameraConfig(
@@ -173,6 +175,9 @@ class CombinedNeroOrcaSink(RecordableSink):
         self._cameras = CameraManager(camera_configs or [])
         self._control_hz = float(control_hz)
         self._show_viewer = bool(show_viewer)
+        self._mirror_lateral = bool(mirror_lateral)
+        self._pick_place = bool(pick_place)
+        self._home_q = np.array(REST_QPOS, dtype=np.float64)
         if nero_output != "sim" and nero_device is None:
             nero_device = PyAgxNero(channel=nero_can)
         if orca_output != "sim" and orca_device is None:
@@ -238,16 +243,19 @@ class CombinedNeroOrcaSink(RecordableSink):
         OrcaJointPositions.register_joint_names(self._hand_config.joint_ids)
         self._map_actuators(mujoco, model)
 
-        apply_rest_pose(model, data)
         self._wrist_positions.reset()
-        self._arm_ik = NeroArmIK(model)
+        self._arm_ik = NeroArmIK(
+            model, mirror_lateral=self._mirror_lateral, pick_place=self._pick_place
+        )
+        self._home_q = self._arm_ik.home_q
+        apply_rest_pose(model, data, self._home_q)
         self._arm_ik.capture_rest_ee(data)
-        self._nero_cmd = np.array(REST_QPOS, dtype=np.float64)
+        self._nero_cmd = self._home_q.copy()
         self._last_hand = self.home_position()
 
         self._nero.connect()
         self._orca.connect()
-        self._nero.move_home()
+        self._nero.move_home(self._home_q)
         self._settle(0.5)
 
         self._renderer = mujoco.Renderer(
@@ -456,12 +464,12 @@ class CombinedNeroOrcaSink(RecordableSink):
         with self._lock:
             self._wrist_positions.reset()
             self._last_hand = self.home_position()
-            self._nero_cmd = np.array(REST_QPOS, dtype=np.float64)
+            self._nero_cmd = self._home_q.copy()
             if not self._nero.hardware:
-                apply_rest_pose(self._model, self._data)
+                apply_rest_pose(self._model, self._data, self._home_q)
         # Blocking hardware moves stay outside the lock so the viewer keeps mirroring.
         self._orca.send(self._hand_command(self._last_hand), num_steps=HOME_HAND_STEPS)
-        self._nero.move_home()
+        self._nero.move_home(self._home_q)
         with self._lock:
             if self._arm_ik is not None:
                 q_save = np.array(self._data.qpos, dtype=np.float64)
