@@ -344,3 +344,4 @@ KEEP=1 NAME=pick-yellow-tape TASK="pick up the yellow tape and place it in the t
 - [native-linux-recording-setup.md](native-linux-recording-setup.md): 설치, `record_pick.sh`, 실행별 결과, 이슈 원본 기록
 - [real-robot-bringup.md](real-robot-bringup.md): 실물 연결 절차, 팔 하중 계산
 - [depth-arm-teleop.md](depth-arm-teleop.md): 손 위치 → 팔 매핑 원리
+- [data-collection-equipment.md](data-collection-equipment.md): 필요한 장비, 목적, 저장 용량
