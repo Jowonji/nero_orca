@@ -3,14 +3,15 @@
 
 The webcam retargeter still emits ``OrcaJointPositions`` for the fingers. MediaPipe
 also streams the wrist position (image x, y, palm width [+ RGB-D X, Y, Z]); this
-sink maps that delta to a carpals target around the rest EE and solves damped
-least-squares IK for Nero. Quest/Manus frames have no wrist position, so the arm
-stays at rest. Dataset vector:
+sink maps that delta to a carpals target around the rest EE (or the pick-and-place
+home, ``pick_place=True``) and solves damped least-squares IK for Nero. Quest/Manus
+frames have no wrist position, so the arm stays at rest. Dataset vector:
 
     concat([nero_1..7, orca wrist + 16 fingers])
 
-Wrist is forced to 0 in commands (MediaPipe does not drive it). Units in the
-dataset are degrees, matching the existing orca_teleop LeRobot schema.
+The Orca wrist ignores the retargeter: 0 deg by default; in pick-and-place mode it
+follows the operator's hand tilt computed by ``arm_ik`` from the MediaPipe landmarks.
+Units in the dataset are degrees, matching the existing orca_teleop LeRobot schema.
 
 Each device has an output mode (see ``hardware.py``): ``sim`` runs MuJoCo physics,
 ``shadow`` reads the real joints and shows the command as a translucent ghost,
@@ -177,8 +178,6 @@ class CombinedNeroOrcaSink(RecordableSink):
         self._show_viewer = bool(show_viewer)
         self._mirror_lateral = bool(mirror_lateral)
         self._pick_place = bool(pick_place)
-        # The teleop never drives the Orca wrist; it is held at this angle (deg).
-        self._orca_wrist_deg = PICK_ORCA_WRIST_DEG if self._pick_place else 0.0
         self._home_q = np.array(REST_QPOS, dtype=np.float64)
         if nero_output != "sim" and nero_device is None:
             nero_device = PyAgxNero(channel=nero_can)
@@ -343,7 +342,7 @@ class CombinedNeroOrcaSink(RecordableSink):
                 self._ghost_data.qpos[adr] = q
             hand = self._last_hand.data if self._last_hand is not None else {}
             for jid, adr in self._orca_qpos_adr.items():
-                deg = self._orca_wrist_deg if jid == "wrist" else float(hand.get(jid) or 0.0)
+                deg = self._wrist_deg() if jid == "wrist" else float(hand.get(jid) or 0.0)
                 self._ghost_data.qpos[adr] = math.radians(deg)
 
     def _viewer_loop(self) -> None:
@@ -455,8 +454,12 @@ class CombinedNeroOrcaSink(RecordableSink):
     def home_position(self) -> OrcaJointPositions:
         assert self._hand_config is not None
         positions = dict(self._hand_config.neutral_position)
-        positions["wrist"] = self._orca_wrist_deg
+        positions["wrist"] = PICK_ORCA_WRIST_DEG if self._pick_place else 0.0
         return OrcaJointPositions(positions)
+
+    def _wrist_deg(self) -> float:
+        """Orca wrist command (deg): the arm IK's teleop wrist in pick mode, else 0."""
+        return self._arm_ik.wrist_deg if self._arm_ik is not None else 0.0
 
     def update_wrist_position(self, landmarks: object) -> None:
         self._wrist_positions.update_from_landmarks(landmarks)
@@ -485,7 +488,7 @@ class CombinedNeroOrcaSink(RecordableSink):
         orca = np.empty(len(self._orca_joint_ids), dtype=np.float64)
         for i, jid in enumerate(self._orca_joint_ids):
             if jid == "wrist":
-                orca[i] = self._orca_wrist_deg
+                orca[i] = self._wrist_deg()
             else:
                 orca[i] = float(hand_action.data.get(jid, 0.0))
         return np.concatenate([nero, orca]).astype(np.float32)
@@ -532,14 +535,14 @@ class CombinedNeroOrcaSink(RecordableSink):
 
     def _hand_command(self, action: OrcaJointPositions) -> OrcaJointPositions:
         positions = dict(action.data)
-        positions["wrist"] = self._orca_wrist_deg
+        positions["wrist"] = self._wrist_deg()
         return OrcaJointPositions(positions)
 
     def _write_hand_ctrl(self, positions_deg: dict[str, float], force_wrist: bool) -> None:
         assert self._data is not None
         for jid, aid in self._orca_act_id.items():
             if jid == "wrist" and force_wrist:
-                self._data.ctrl[aid] = math.radians(self._orca_wrist_deg)
+                self._data.ctrl[aid] = math.radians(self._wrist_deg())
                 continue
             deg = positions_deg.get(jid)
             self._data.ctrl[aid] = math.radians(float(deg or 0.0))

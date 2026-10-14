@@ -6,8 +6,9 @@
 #   NAME=pick-cube TASK="pick the cube and place it left of the tray" EPISODES=20 KEEP=1 ./record_pick.sh
 #
 # Env: NERO / ORCA (sim|shadow|real), SPEED (Nero %), NAME (dataset name), TASK, EPISODES,
-# KEEP=1 to append instead of --overwrite. The data camera is found by its serial, so the
-# /dev/video number may change between replugs.
+# REST (seconds between episodes to reset the scene, default 15), KEEP=1 to append instead of
+# --overwrite. The data camera is found by its serial, so the /dev/video number may change
+# between replugs. Each run appends its log to datasets/<NAME>.log.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -20,6 +21,7 @@ SPEED=${SPEED:-20}
 NAME=${NAME:-nero-orca-pick-real-test}
 TASK=${TASK:-pick real test}
 EPISODES=${EPISODES:-1}
+REST=${REST:-15}
 
 data_index=""
 for dev in /dev/video*; do
@@ -35,7 +37,9 @@ if ! ip link show can0 2>/dev/null | grep -q "state UP" && [[ "$NERO" != sim ]];
     echo "can0 is not up: sudo ip link set can0 up type can bitrate 1000000, then External CAN Push" >&2
     exit 1
 fi
-echo "data camera /dev/video$data_index, nero=$NERO (speed $SPEED%), orca=$ORCA, dataset=$NAME"
+mkdir -p datasets
+echo "=== $(date "+%F %T") $0" >> "datasets/$NAME.log"
+echo "data camera /dev/video$data_index, nero=$NERO (speed $SPEED%), orca=$ORCA, dataset=$NAME, rest ${REST}s"
 
 overwrite=(--overwrite)
 [[ "${KEEP:-0}" == 1 ]] && overwrite=()
@@ -55,4 +59,5 @@ overwrite=(--overwrite)
     --root "datasets/$NAME" \
     --task "$TASK" \
     --fps 15 --num-episodes "$EPISODES" --episode-end space \
-    "${overwrite[@]}" 2>&1 | tee record_real.log
+    --rest-seconds "$REST" \
+    "${overwrite[@]}" 2>&1 | tee -a "datasets/$NAME.log"

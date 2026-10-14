@@ -49,7 +49,15 @@ MAX_EE_SPEED = 0.8  # m/s
 # by the arm or by the Orca wrist, and a +30 deg Orca wrist were tried and not kept.)
 PICK_LOCKED = (2, 4, 5)  # J3, J5, J6 indices
 PICK_PITCH = math.radians(135.0)
-PICK_ORCA_WRIST_DEG = 0.0  # the teleop never drives the Orca wrist; it is held here
+PICK_ORCA_WRIST_DEG = 0.0  # Orca wrist at the anchor; the teleop adds the hand's tilt to it
+# Orca wrist teleop: the operator's hand tilt (wrist->middle-MCP pitch in the camera frame),
+# relative to the moment the hand was (re)acquired, moves the Orca wrist; positive = fingers
+# down. Tilting down lowers the hand (worst-case drop below the IK reference: 11.9 cm at 0,
+# 12.9 at +10, 13.9 at +20, 14.2 at +25 deg), so the floor rises by the extra drop.
+PICK_WRIST_RANGE = (-40.0, 25.0)  # deg, teleop wrist command
+PICK_WRIST_SCALE = 1.0
+PICK_WRIST_MAX_SPEED = 120.0  # deg/s
+PICK_WRIST_FLOOR_RISE = ((0.0, 0.0), (10.0, 0.010), (20.0, 0.020), (25.0, 0.023))  # (deg, m)
 PICK_HOME_EE = np.array([-0.52, 0.0, 0.23], dtype=np.float64)  # m; robot faces -X
 # Box around home (m). Table = robot base plane; at this tilt the hand reaches 9.8 cm below
 # the EE body with open fingers and 11.9 cm with curled ones, so z >= 0.14 keeps it >= 2 cm
@@ -106,6 +114,21 @@ def _clamp_radius(goal: np.ndarray) -> np.ndarray:
     return out
 
 
+def _hand_pitch(keypoints: object) -> float | None:
+    """Wrist->middle-MCP angle below the camera's horizontal plane (rad, down positive).
+
+    MediaPipe world landmarks are metric and camera-oriented (x right, y down)."""
+    if keypoints is None:
+        return None
+    kp = np.asarray(keypoints, dtype=np.float64).reshape(-1, 3)
+    if kp.shape[0] < 10:
+        return None
+    d = kp[9] - kp[0]
+    if not np.all(np.isfinite(d)) or float(np.linalg.norm(d)) < 1e-6:
+        return None
+    return float(math.atan2(d[1], math.hypot(d[0], d[2])))
+
+
 @dataclass
 class WristPosition:
     """Image-space wrist cue: x, y in [0, 1], palm_width in [0, 1]; optional metric palm."""
@@ -113,6 +136,7 @@ class WristPosition:
     wrist_image: np.ndarray  # (3,)
     stamp: float = field(default_factory=time.perf_counter)
     palm_xyz: np.ndarray | None = None  # (3,) camera frame, meters
+    hand_pitch: float | None = None  # rad, wrist->middle MCP below the camera's horizontal
 
     @property
     def metric(self) -> bool:
@@ -178,7 +202,10 @@ class WristPositionMirror:
             palm_xyz = arr[3:6].copy()
         with self._lock:
             self._latest = WristPosition(
-                wrist_image=arr[:3].copy(), stamp=time.perf_counter(), palm_xyz=palm_xyz
+                wrist_image=arr[:3].copy(),
+                stamp=time.perf_counter(),
+                palm_xyz=palm_xyz,
+                hand_pitch=_hand_pitch(getattr(landmarks, "keypoints", None)),
             )
 
     def snapshot(self) -> WristPosition | None:
@@ -225,6 +252,9 @@ class NeroArmIK:
         self._target = np.zeros(3, dtype=np.float64)
         self._origin: np.ndarray | None = None
         self._last_solve: float | None = None
+        self._pitch_filter = OneEuroFilter(np.array([1.0]), np.array([4.0]), FILTER_D_CUTOFF)
+        self._pitch_zero: float | None = None
+        self._wrist_teleop = 0.0  # deg, added to PICK_ORCA_WRIST_DEG
 
     @property
     def home_q(self) -> np.ndarray:
@@ -269,6 +299,22 @@ class NeroArmIK:
         self._image_filter.reset()
         self._metric_filter.reset()
         self._last_solve = None
+        self._pitch_zero = None
+        self._wrist_teleop = 0.0
+
+    @property
+    def wrist_deg(self) -> float:
+        """Orca wrist command (deg): pick mode adds the teleop tilt; otherwise 0."""
+        return PICK_ORCA_WRIST_DEG + self._wrist_teleop if self._pick else 0.0
+
+    def _update_wrist(self, pitch: float | None, dt: float) -> None:
+        """Pick mode: follow the operator's hand tilt relative to the anchor."""
+        if not self._pick or pitch is None or self._pitch_zero is None:
+            return
+        filtered = float(self._pitch_filter(np.array([pitch]), dt)[0])
+        want = float(np.clip(PICK_WRIST_SCALE * math.degrees(filtered - self._pitch_zero), *PICK_WRIST_RANGE))
+        step = PICK_WRIST_MAX_SPEED * dt
+        self._wrist_teleop += float(np.clip(want - self._wrist_teleop, -step, step))
 
     def _offset(self, cue: np.ndarray) -> np.ndarray:
         assert self._origin is not None
@@ -304,11 +350,20 @@ class NeroArmIK:
             self._filter = self._metric_filter if self._metric else self._image_filter
             self._origin = wrist.cue.copy()
             self._filter.reset(wrist.cue)
+            if wrist.hand_pitch is not None:
+                # Keep the current wrist angle: re-acquiring the hand must not jump it.
+                self._pitch_zero = wrist.hand_pitch - math.radians(self._wrist_teleop / PICK_WRIST_SCALE)
+                self._pitch_filter.reset(np.array([wrist.hand_pitch]))
             return self._q.copy()
 
         cue = self._filter(wrist.cue, dt)
+        self._update_wrist(wrist.hand_pitch, dt)
         offset = self._anchor_ee + self._offset(cue) - self._rest_ee
-        offset = np.clip(offset, self._clamp_lo, self._clamp_hi)
+        lo = self._clamp_lo.copy()
+        if self._pick:  # a wrist tilted down hangs the hand lower: raise the floor to match
+            deg, rise = zip(*PICK_WRIST_FLOOR_RISE)
+            lo[2] += float(np.interp(self.wrist_deg, deg, rise))
+        offset = np.clip(offset, lo, self._clamp_hi)
         goal = self._rest_ee + offset
         if self._pick:
             goal = _clamp_radius(goal)

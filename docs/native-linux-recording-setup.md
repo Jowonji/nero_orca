@@ -6,6 +6,7 @@
 | 범위 | Dell 노트북 Ubuntu 듀얼부팅에서 실물 Nero 팔 + Orca 손 + Orbbec 2대로 `record_dataset.py` 녹화 (shadow 검증 → real 단계 시작) |
 | 환경 | Ubuntu 24.04, 커널 7.0, X11, Intel Iris Xe, Python 3.12 (`orca_teleop/.venv`, uv), lerobot 0.4.4, torch 2.10 |
 | 선행 | [wsl-lerobot-recording-setup.md](wsl-lerobot-recording-setup.md), [real-robot-bringup.md](real-robot-bringup.md), [jetson-webcam-teleop-first-run.md](jetson-webcam-teleop-first-run.md) |
+| 이어지는 문서 | [teleop-workcell-and-data-plan.md](teleop-workcell-and-data-plan.md): 하드웨어 제약, 작업대 구성, 학습·추론, 확장 방향 정리 |
 | 결과 | Orbbec 깊이 모드, 좌우 반전, pick-and-place 3자유도 모드. 손 모터 방향 수정 후 팔·손 real 96초 에피소드: 팔 오차 평균 0.2~0.4°, 손 5°, 안전장치 0회 |
 
 ---
@@ -243,7 +244,7 @@ print(ds.num_episodes, ds.num_frames, ds[0]['observation.images.data'].shape)"
 | 시작 자세 | 로봇 앞 52 cm, 손바닥 중심(carpals) 높이 23 cm. 관절 J2 24°, J4 80°, J7 32° |
 | 범위 (시작 자세 기준) | 앞뒤 ±10 cm, 좌우 ±25 cm, 아래 −9 / 위 +11 cm. 책상 = 로봇 받침 면. 손 최저점이 carpals보다 펴진 손 9.8 cm, 쥔 손 11.9 cm 아래라 맨 아래에서도 펴진 손 4.2 cm, 쥔 손 2 cm 이상 책상 위 |
 | 도달 거리 | 목표의 수평 거리를 높이별 도달 한계 안(1.5 cm 여유)으로 당김: carpals 높이 14 cm에서 67.5 cm, 34 cm에서 59 cm, 최소 40 cm. 닿지 않는 먼 모서리를 겨냥하면 IK가 가장 가까운 자세로 가면서 손이 책상 0.6 cm 위까지 처졌다 |
-| Orca 손목 | 0° 고정 (`PICK_ORCA_WRIST_DEG`). IK는 항상 이 각도로 손 위치를 계산한다 (EE body가 Orca 손목 뒤에 있어 손목 각도가 EE를 옮긴다) |
+| Orca 손목 | 사람 손 기울기(손목→가운뎃손가락 뿌리, 카메라 기준)를 손이 잡힌 순간 대비로 따라감. −40 ~ +25°, 필터·120°/s 제한, 다시 잡아도 튀지 않음. 숙이면 손이 내려가므로 팔 아래 한계를 올림(+25°에서 2.3 cm). 실물에서 +가 손끝 아래 방향임을 확인. IK는 손 위치를 기준 각도 0°로 계산한다 (EE body가 Orca 손목 뒤에 있어 손목 각도가 EE를 옮긴다) |
 | 팔꿈치 | J4 ≥ 15°, J2+J4는 J7이 한계 안에 있도록 제한 |
 | 속도 | 손목 목표 0.3 m/s, 관절 명령 0.4 rad/s (전 관절 같은 비율로 줄여 J7 관계 유지). `--nero-speed 20` |
 
@@ -281,6 +282,7 @@ NAME=pick-tape TASK="pick up the tape and place it on the table" EPISODES=10 KEE
 
 - 저장 위치: `datasets/<NAME>/` (`data/` parquet, `videos/` mp4, `meta/`). 기본 이름 `nero-orca-pick-real-test`는 매번 덮어쓴다.
 - `KEEP=1`은 같은 데이터셋에 에피소드를 이어 붙인다 (`--overwrite` 없음). 새 이름의 첫 실행은 `KEEP=1` 없이.
+- 에피소드 사이: 스페이스바로 저장 → 팔·손이 시작 자세로 복귀 → `REST`초(기본 15) 동안 명령 없음, 이때 물체를 다음 시작 위치에 놓는다.
 - 고정 옵션: `--depth orbbec`, 손 추적 Orbbec 시리얼과 레이저 3단계, `--mirror-lateral --pick-place`, 15 fps, `--episode-end space`.
 
 ---
