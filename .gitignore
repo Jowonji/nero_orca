@@ -8,3 +8,6 @@ _preview_combined.xml
 
 # Orbbec SDK runtime logs
 Log/
+
+# tee logs from record_dataset.py runs
+record_*.log

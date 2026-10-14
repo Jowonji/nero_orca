@@ -3,14 +3,15 @@
 
 The webcam retargeter still emits ``OrcaJointPositions`` for the fingers. MediaPipe
 also streams the wrist position (image x, y, palm width [+ RGB-D X, Y, Z]); this
-sink maps that delta to a carpals target around the rest EE and solves damped
-least-squares IK for Nero. Quest/Manus frames have no wrist position, so the arm
-stays at rest. Dataset vector:
+sink maps that delta to a carpals target around the rest EE (or the pick-and-place
+home, ``pick_place=True``) and solves damped least-squares IK for Nero. Quest/Manus
+frames have no wrist position, so the arm stays at rest. Dataset vector:
 
     concat([nero_1..7, orca wrist + 16 fingers])
 
-Wrist is forced to 0 in commands (MediaPipe does not drive it). Units in the
-dataset are degrees, matching the existing orca_teleop LeRobot schema.
+The Orca wrist ignores the retargeter: 0 deg by default; in pick-and-place mode it
+follows the operator's hand tilt computed by ``arm_ik`` from the MediaPipe landmarks.
+Units in the dataset are degrees, matching the existing orca_teleop LeRobot schema.
 
 Each device has an output mode (see ``hardware.py``): ``sim`` runs MuJoCo physics,
 ``shadow`` reads the real joints and shows the command as a translucent ghost,
@@ -27,6 +28,8 @@ import argparse
 import logging
 import math
 import queue
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -36,7 +39,7 @@ import numpy as np
 import orca_core
 from orca_core import OrcaHandConfig, OrcaJointPositions
 
-from arm_ik import NeroArmIK, WristPosition, WristPositionMirror
+from arm_ik import PICK_ORCA_WRIST_DEG, NeroArmIK, WristPosition, WristPositionMirror
 from hardware import (
     NERO_DEFAULT_SPEED_PERCENT,
     NERO_MAX_JOINT_SPEED,
@@ -67,6 +70,9 @@ RECORD_WIDTH = 320
 RECORD_HEIGHT = 240
 VIEWER_HZ = 15.0
 IDLE_REFRESH_S = 0.15  # hardware mirror refresh when no teleop command arrives
+VIEWER_WINDOW_TITLE = "nero_orca_view"  # MJCF model name; wmctrl matches it case-insensitively
+VIEWER_PLACE_TIMEOUT_S = 5.0
+VIEWER_LEFT_X = 680  # right of the 640 px webcam preview at x=20 (orca_teleop publisher)
 GHOST_RGBA = np.array([0.2, 0.8, 1.0, 0.25], dtype=np.float32)
 HOME_HAND_STEPS = 50
 
@@ -96,6 +102,53 @@ def _actuator_core_name(mj_joint_name: str) -> str:
     return name
 
 
+def _frame_robot(mujoco: Any, model: Any, data: Any, cam: Any) -> None:
+    """Point a free camera at the robot's current bounding box so it fills the view."""
+    mujoco.mj_forward(model, data)
+    keep = model.geom_type != int(mujoco.mjtGeom.mjGEOM_PLANE)
+    centers = data.geom_xpos[keep]
+    radii = model.geom_rbound[keep][:, None]
+    lo = (centers - radii).min(axis=0)
+    hi = (centers + radii).max(axis=0)
+    radius = 0.5 * float(np.linalg.norm(hi - lo))
+    half_fovy = math.radians(float(model.vis.global_.fovy)) / 2.0
+    cam.type = int(mujoco.mjtCamera.mjCAMERA_FREE)
+    cam.lookat[:] = (lo + hi) / 2.0
+    cam.distance = 1.1 * radius / math.sin(half_fovy)
+    cam.azimuth = 140.0
+    cam.elevation = -20.0
+
+
+def _place_viewer_right() -> None:
+    """Fill the screen right of the webcam preview with the MuJoCo viewer.
+
+    ``launch_passive`` has no window-position option, so this uses ``wmctrl`` (X11) once the
+    window appears. Best effort: without wmctrl or on Wayland the window stays where it opened.
+    """
+    if shutil.which("wmctrl") is None:
+        logger.warning("wmctrl not found (sudo apt install wmctrl); MuJoCo viewer left unplaced")
+        return
+    try:
+        desktop = subprocess.run(["wmctrl", "-d"], capture_output=True, text=True, timeout=2)
+        width, height = (int(v) for v in desktop.stdout.split()[3].split("x"))  # "DG: WxH"
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        width, height = 1920, 1080
+    deadline = time.monotonic() + VIEWER_PLACE_TIMEOUT_S
+    while time.monotonic() < deadline:
+        listing = subprocess.run(["wmctrl", "-l"], capture_output=True, text=True, timeout=2)
+        if VIEWER_WINDOW_TITLE in listing.stdout.lower():
+            break
+        time.sleep(0.2)
+    else:
+        logger.warning("MuJoCo viewer window not found; left unplaced")
+        return
+    for args in (
+        ["-b", "remove,maximized_vert,maximized_horz"],
+        ["-e", f"0,{VIEWER_LEFT_X},40,{width - VIEWER_LEFT_X - 20},{height - 100}"],
+    ):
+        subprocess.run(["wmctrl", "-r", VIEWER_WINDOW_TITLE, *args], timeout=2)
+
+
 class CombinedNeroOrcaSink(RecordableSink):
     """Drive ``nero_orca_scene.xml`` and optionally the real Nero arm / Orca hand."""
 
@@ -113,6 +166,8 @@ class CombinedNeroOrcaSink(RecordableSink):
         orca_model_path: str | None = None,
         nero_device: NeroDevice | None = None,
         orca_device: OrcaDevice | None = None,
+        mirror_lateral: bool = False,
+        pick_place: bool = False,
     ) -> None:
         self._scene_xml = Path(scene_xml) if scene_xml is not None else SCENE_XML
         self._camera_config = camera_config or SimCameraConfig(
@@ -121,6 +176,9 @@ class CombinedNeroOrcaSink(RecordableSink):
         self._cameras = CameraManager(camera_configs or [])
         self._control_hz = float(control_hz)
         self._show_viewer = bool(show_viewer)
+        self._mirror_lateral = bool(mirror_lateral)
+        self._pick_place = bool(pick_place)
+        self._home_q = np.array(REST_QPOS, dtype=np.float64)
         if nero_output != "sim" and nero_device is None:
             nero_device = PyAgxNero(channel=nero_can)
         if orca_output != "sim" and orca_device is None:
@@ -186,16 +244,19 @@ class CombinedNeroOrcaSink(RecordableSink):
         OrcaJointPositions.register_joint_names(self._hand_config.joint_ids)
         self._map_actuators(mujoco, model)
 
-        apply_rest_pose(model, data)
         self._wrist_positions.reset()
-        self._arm_ik = NeroArmIK(model)
+        self._arm_ik = NeroArmIK(
+            model, mirror_lateral=self._mirror_lateral, pick_place=self._pick_place
+        )
+        self._home_q = self._arm_ik.home_q
+        apply_rest_pose(model, data, self._home_q)
         self._arm_ik.capture_rest_ee(data)
-        self._nero_cmd = np.array(REST_QPOS, dtype=np.float64)
+        self._nero_cmd = self._home_q.copy()
         self._last_hand = self.home_position()
 
         self._nero.connect()
         self._orca.connect()
-        self._nero.move_home()
+        self._nero.move_home(self._home_q)
         self._settle(0.5)
 
         self._renderer = mujoco.Renderer(
@@ -246,7 +307,12 @@ class CombinedNeroOrcaSink(RecordableSink):
             self._viewer_data = mujoco.MjData(model)
             self._ghost_data = mujoco.MjData(model)
             self._copy_view_state()
-            vis = viewer.launch_passive(model, self._viewer_data)
+            # Side panels hidden so the robot gets the space; Tab / Shift+Tab toggle them.
+            vis = viewer.launch_passive(
+                model, self._viewer_data, show_left_ui=False, show_right_ui=False
+            )
+            with vis.lock():
+                _frame_robot(mujoco, model, self._viewer_data, vis.cam)
             vis.user_scn.flags[int(mujoco.mjtRndFlag.mjRND_SHADOW)] = 0
             vis.user_scn.flags[int(mujoco.mjtRndFlag.mjRND_REFLECTION)] = 0
             vis.sync()
@@ -264,6 +330,7 @@ class CombinedNeroOrcaSink(RecordableSink):
             target=self._viewer_loop, name="mujoco-viewer", daemon=True
         )
         self._viewer_thread.start()
+        threading.Thread(target=_place_viewer_right, name="viewer-place", daemon=True).start()
 
     def _copy_view_state(self) -> None:
         """Snapshot state (and command ghost) into the viewer-owned MjData copies."""
@@ -275,7 +342,7 @@ class CombinedNeroOrcaSink(RecordableSink):
                 self._ghost_data.qpos[adr] = q
             hand = self._last_hand.data if self._last_hand is not None else {}
             for jid, adr in self._orca_qpos_adr.items():
-                deg = 0.0 if jid == "wrist" else float(hand.get(jid) or 0.0)
+                deg = self._wrist_deg() if jid == "wrist" else float(hand.get(jid) or 0.0)
                 self._ghost_data.qpos[adr] = math.radians(deg)
 
     def _viewer_loop(self) -> None:
@@ -387,8 +454,12 @@ class CombinedNeroOrcaSink(RecordableSink):
     def home_position(self) -> OrcaJointPositions:
         assert self._hand_config is not None
         positions = dict(self._hand_config.neutral_position)
-        positions["wrist"] = 0.0
+        positions["wrist"] = PICK_ORCA_WRIST_DEG if self._pick_place else 0.0
         return OrcaJointPositions(positions)
+
+    def _wrist_deg(self) -> float:
+        """Orca wrist command (deg): the arm IK's teleop wrist in pick mode, else 0."""
+        return self._arm_ik.wrist_deg if self._arm_ik is not None else 0.0
 
     def update_wrist_position(self, landmarks: object) -> None:
         self._wrist_positions.update_from_landmarks(landmarks)
@@ -398,12 +469,12 @@ class CombinedNeroOrcaSink(RecordableSink):
         with self._lock:
             self._wrist_positions.reset()
             self._last_hand = self.home_position()
-            self._nero_cmd = np.array(REST_QPOS, dtype=np.float64)
+            self._nero_cmd = self._home_q.copy()
             if not self._nero.hardware:
-                apply_rest_pose(self._model, self._data)
+                apply_rest_pose(self._model, self._data, self._home_q)
         # Blocking hardware moves stay outside the lock so the viewer keeps mirroring.
         self._orca.send(self._hand_command(self._last_hand), num_steps=HOME_HAND_STEPS)
-        self._nero.move_home()
+        self._nero.move_home(self._home_q)
         with self._lock:
             if self._arm_ik is not None:
                 q_save = np.array(self._data.qpos, dtype=np.float64)
@@ -417,7 +488,7 @@ class CombinedNeroOrcaSink(RecordableSink):
         orca = np.empty(len(self._orca_joint_ids), dtype=np.float64)
         for i, jid in enumerate(self._orca_joint_ids):
             if jid == "wrist":
-                orca[i] = 0.0
+                orca[i] = self._wrist_deg()
             else:
                 orca[i] = float(hand_action.data.get(jid, 0.0))
         return np.concatenate([nero, orca]).astype(np.float32)
@@ -435,15 +506,23 @@ class CombinedNeroOrcaSink(RecordableSink):
             return self._read_joint_state()
 
     def _read_joint_state(self) -> np.ndarray:
+        """Hardware joints come from the device feedback itself, not the MuJoCo mirror: the
+        mirror's hand is driven through ctrl and stops at the MJCF joint ranges, which are
+        narrower than the real hand's (e.g. MCP -24.4 deg in the model vs -60 deg real)."""
         assert self._data is not None
-        nero = np.rad2deg(
-            np.array([float(self._data.qpos[adr]) for adr in self._nero_qpos_adr], dtype=np.float64)
-        )
-        orca = np.rad2deg(
-            np.array(
-                [float(self._data.qpos[self._orca_qpos_adr[jid]]) for jid in self._orca_joint_ids],
-                dtype=np.float64,
-            )
+        nero_q = self._nero.q
+        if not self._nero.hardware or nero_q is None:
+            nero_q = np.array([float(self._data.qpos[adr]) for adr in self._nero_qpos_adr])
+        nero = np.rad2deg(np.asarray(nero_q, dtype=np.float64))
+        hand = self._orca.deg if self._orca.hardware else None
+        orca = np.array(
+            [
+                float(hand[jid])
+                if hand is not None and hand.get(jid) is not None
+                else math.degrees(float(self._data.qpos[self._orca_qpos_adr[jid]]))
+                for jid in self._orca_joint_ids
+            ],
+            dtype=np.float64,
         )
         return np.concatenate([nero, orca]).astype(np.float32)
 
@@ -456,14 +535,14 @@ class CombinedNeroOrcaSink(RecordableSink):
 
     def _hand_command(self, action: OrcaJointPositions) -> OrcaJointPositions:
         positions = dict(action.data)
-        positions["wrist"] = 0.0
+        positions["wrist"] = self._wrist_deg()
         return OrcaJointPositions(positions)
 
-    def _write_hand_ctrl(self, positions_deg: dict[str, float], force_wrist_zero: bool) -> None:
+    def _write_hand_ctrl(self, positions_deg: dict[str, float], force_wrist: bool) -> None:
         assert self._data is not None
         for jid, aid in self._orca_act_id.items():
-            if jid == "wrist" and force_wrist_zero:
-                self._data.ctrl[aid] = 0.0
+            if jid == "wrist" and force_wrist:
+                self._data.ctrl[aid] = math.radians(self._wrist_deg())
                 continue
             deg = positions_deg.get(jid)
             self._data.ctrl[aid] = math.radians(float(deg or 0.0))
@@ -515,7 +594,7 @@ class CombinedNeroOrcaSink(RecordableSink):
 
         nero_q = self._nero.q
         hand = self._orca.deg if self._orca.hardware else (self._last_hand or self.home_position()).data
-        self._write_hand_ctrl(hand or {}, force_wrist_zero=not self._orca.hardware)
+        self._write_hand_ctrl(hand or {}, force_wrist=not self._orca.hardware)
         for k in range(nstep):
             if self._nero.hardware:
                 target = nero_q if nero_q is not None else prev_cmd

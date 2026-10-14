@@ -68,6 +68,10 @@ def main() -> None:
     parser.add_argument("--hand", choices=["right"], default="right")
     parser.add_argument("--port", type=int, default=50051)
     parser.add_argument("--control-hz", type=float, default=15.0)
+    parser.add_argument("--pick-place", action="store_true",
+                        help="3-DoF arm: wrist joints locked, hand 45 deg down, home in front")
+    parser.add_argument("--mirror-lateral", action="store_true",
+                        help="camera faces the operator: flip left/right so right means right")
     parser.add_argument("--no-show-video", dest="show_video", action="store_false",
                         help="hide the webcam window")
     parser.add_argument("--no-viewer", dest="viewer", action="store_false",
@@ -105,6 +109,8 @@ def main() -> None:
         orca_model_path=args.model_path,
         nero_device=nero_device,
         orca_device=orca_device,
+        mirror_lateral=args.mirror_lateral,
+        pick_place=args.pick_place,
     )
 
     from orca_teleop.pipeline import run_local
