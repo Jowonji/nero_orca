@@ -27,6 +27,8 @@ import argparse
 import logging
 import math
 import queue
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -67,6 +69,9 @@ RECORD_WIDTH = 320
 RECORD_HEIGHT = 240
 VIEWER_HZ = 15.0
 IDLE_REFRESH_S = 0.15  # hardware mirror refresh when no teleop command arrives
+VIEWER_WINDOW_TITLE = "nero_orca_view"  # MJCF model name; wmctrl matches it case-insensitively
+VIEWER_PLACE_TIMEOUT_S = 5.0
+VIEWER_LEFT_X = 680  # right of the 640 px webcam preview at x=20 (orca_teleop publisher)
 GHOST_RGBA = np.array([0.2, 0.8, 1.0, 0.25], dtype=np.float32)
 HOME_HAND_STEPS = 50
 
@@ -94,6 +99,53 @@ def _actuator_core_name(mj_joint_name: str) -> str:
     if name.endswith("_actuator"):
         name = name[: -len("_actuator")]
     return name
+
+
+def _frame_robot(mujoco: Any, model: Any, data: Any, cam: Any) -> None:
+    """Point a free camera at the robot's current bounding box so it fills the view."""
+    mujoco.mj_forward(model, data)
+    keep = model.geom_type != int(mujoco.mjtGeom.mjGEOM_PLANE)
+    centers = data.geom_xpos[keep]
+    radii = model.geom_rbound[keep][:, None]
+    lo = (centers - radii).min(axis=0)
+    hi = (centers + radii).max(axis=0)
+    radius = 0.5 * float(np.linalg.norm(hi - lo))
+    half_fovy = math.radians(float(model.vis.global_.fovy)) / 2.0
+    cam.type = int(mujoco.mjtCamera.mjCAMERA_FREE)
+    cam.lookat[:] = (lo + hi) / 2.0
+    cam.distance = 1.1 * radius / math.sin(half_fovy)
+    cam.azimuth = 140.0
+    cam.elevation = -20.0
+
+
+def _place_viewer_right() -> None:
+    """Fill the screen right of the webcam preview with the MuJoCo viewer.
+
+    ``launch_passive`` has no window-position option, so this uses ``wmctrl`` (X11) once the
+    window appears. Best effort: without wmctrl or on Wayland the window stays where it opened.
+    """
+    if shutil.which("wmctrl") is None:
+        logger.warning("wmctrl not found (sudo apt install wmctrl); MuJoCo viewer left unplaced")
+        return
+    try:
+        desktop = subprocess.run(["wmctrl", "-d"], capture_output=True, text=True, timeout=2)
+        width, height = (int(v) for v in desktop.stdout.split()[3].split("x"))  # "DG: WxH"
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        width, height = 1920, 1080
+    deadline = time.monotonic() + VIEWER_PLACE_TIMEOUT_S
+    while time.monotonic() < deadline:
+        listing = subprocess.run(["wmctrl", "-l"], capture_output=True, text=True, timeout=2)
+        if VIEWER_WINDOW_TITLE in listing.stdout.lower():
+            break
+        time.sleep(0.2)
+    else:
+        logger.warning("MuJoCo viewer window not found; left unplaced")
+        return
+    for args in (
+        ["-b", "remove,maximized_vert,maximized_horz"],
+        ["-e", f"0,{VIEWER_LEFT_X},40,{width - VIEWER_LEFT_X - 20},{height - 100}"],
+    ):
+        subprocess.run(["wmctrl", "-r", VIEWER_WINDOW_TITLE, *args], timeout=2)
 
 
 class CombinedNeroOrcaSink(RecordableSink):
@@ -246,7 +298,12 @@ class CombinedNeroOrcaSink(RecordableSink):
             self._viewer_data = mujoco.MjData(model)
             self._ghost_data = mujoco.MjData(model)
             self._copy_view_state()
-            vis = viewer.launch_passive(model, self._viewer_data)
+            # Side panels hidden so the robot gets the space; Tab / Shift+Tab toggle them.
+            vis = viewer.launch_passive(
+                model, self._viewer_data, show_left_ui=False, show_right_ui=False
+            )
+            with vis.lock():
+                _frame_robot(mujoco, model, self._viewer_data, vis.cam)
             vis.user_scn.flags[int(mujoco.mjtRndFlag.mjRND_SHADOW)] = 0
             vis.user_scn.flags[int(mujoco.mjtRndFlag.mjRND_REFLECTION)] = 0
             vis.sync()
@@ -264,6 +321,7 @@ class CombinedNeroOrcaSink(RecordableSink):
             target=self._viewer_loop, name="mujoco-viewer", daemon=True
         )
         self._viewer_thread.start()
+        threading.Thread(target=_place_viewer_right, name="viewer-place", daemon=True).start()
 
     def _copy_view_state(self) -> None:
         """Snapshot state (and command ghost) into the viewer-owned MjData copies."""
@@ -435,15 +493,23 @@ class CombinedNeroOrcaSink(RecordableSink):
             return self._read_joint_state()
 
     def _read_joint_state(self) -> np.ndarray:
+        """Hardware joints come from the device feedback itself, not the MuJoCo mirror: the
+        mirror's hand is driven through ctrl and stops at the MJCF joint ranges, which are
+        narrower than the real hand's (e.g. MCP -24.4 deg in the model vs -60 deg real)."""
         assert self._data is not None
-        nero = np.rad2deg(
-            np.array([float(self._data.qpos[adr]) for adr in self._nero_qpos_adr], dtype=np.float64)
-        )
-        orca = np.rad2deg(
-            np.array(
-                [float(self._data.qpos[self._orca_qpos_adr[jid]]) for jid in self._orca_joint_ids],
-                dtype=np.float64,
-            )
+        nero_q = self._nero.q
+        if not self._nero.hardware or nero_q is None:
+            nero_q = np.array([float(self._data.qpos[adr]) for adr in self._nero_qpos_adr])
+        nero = np.rad2deg(np.asarray(nero_q, dtype=np.float64))
+        hand = self._orca.deg if self._orca.hardware else None
+        orca = np.array(
+            [
+                float(hand[jid])
+                if hand is not None and hand.get(jid) is not None
+                else math.degrees(float(self._data.qpos[self._orca_qpos_adr[jid]]))
+                for jid in self._orca_joint_ids
+            ],
+            dtype=np.float64,
         )
         return np.concatenate([nero, orca]).astype(np.float32)
 
