@@ -464,6 +464,10 @@ class CombinedNeroOrcaSink(RecordableSink):
     def update_wrist_position(self, landmarks: object) -> None:
         self._wrist_positions.update_from_landmarks(landmarks)
 
+    def update_hand_pitch(self, pitch: float) -> None:
+        """Hand tilt without a wrist position (glove): Orca wrist follows it in pick mode."""
+        self._wrist_positions.update_hand_pitch(pitch)
+
     def go_home(self) -> None:
         assert self._model is not None and self._data is not None
         with self._lock:

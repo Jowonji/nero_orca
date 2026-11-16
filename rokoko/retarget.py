@@ -110,6 +110,17 @@ def thumb_from_canonical(canonical: np.ndarray) -> dict[str, float]:
     }
 
 
+def hand_pitch(positions: np.ndarray) -> float | None:
+    """Wrist→middle-MCP tilt below horizontal (rad, down positive) from raw Rokoko positions.
+
+    Same definition as ``arm_ik._hand_pitch`` for MediaPipe, but Rokoko's world frame is Y up.
+    """
+    d = np.asarray(positions, dtype=float)[9] - np.asarray(positions, dtype=float)[0]
+    if not np.all(np.isfinite(d)) or float(np.linalg.norm(d)) < 1e-6:
+        return None
+    return float(math.atan2(-d[1], math.hypot(d[0], d[2])))
+
+
 def abduction_from_canonical(canonical: np.ndarray) -> dict[str, float]:
     """Per-finger Orca abd (deg, + = pinky side) from canonical (21, 3) hand points."""
     out = {}
