@@ -15,8 +15,11 @@ a ghost, sends nothing) and the hand is ``sim``. ``real`` asks for confirmation.
     ../orca_teleop/.venv/bin/python teleop.py                                   # arm shadow
     ../orca_teleop/.venv/bin/python teleop.py --nero-output real --nero-speed 10
     ../orca_teleop/.venv/bin/python teleop.py --nero-output real --fake-hardware  # no robot
+    ../orca_teleop/.venv/bin/python teleop.py --source rokoko --nero-output sim  # glove, hand only
 
 Stop with Ctrl+C in this terminal. The real Nero stays enabled at its last pose.
+``--source rokoko`` takes the Rokoko Smartgloves UDP stream instead of the webcam
+(docs/rokoko-glove-teleop.md); the arm has no input then and stays at home.
 """
 
 from __future__ import annotations
@@ -66,6 +69,11 @@ def main() -> None:
     parser.add_argument("--depth", choices=DEPTH_MODES, default="auto", help="MediaPipe depth cue")
     parser.add_argument("--camera", type=int, default=None, help="OpenCV webcam index (depth=webcam/auto)")
     parser.add_argument("--hand", choices=["right"], default="right")
+    parser.add_argument("--source", choices=("mediapipe", "rokoko"), default="mediapipe",
+                        help="hand input: webcam MediaPipe (default) or Rokoko Smartgloves "
+                             "UDP stream (hand only; the arm stays home)")
+    parser.add_argument("--rokoko-port", type=int, default=14043,
+                        help="UDP port Rokoko Studio streams to (--source rokoko)")
     parser.add_argument("--port", type=int, default=50051)
     parser.add_argument("--control-hz", type=float, default=15.0)
     parser.add_argument("--pick-place", action="store_true",
@@ -112,6 +120,12 @@ def main() -> None:
         mirror_lateral=args.mirror_lateral,
         pick_place=args.pick_place,
     )
+
+    if args.source == "rokoko":
+        from rokoko.worker import run_rokoko
+
+        run_rokoko(sink, urdf_path=args.urdf_path, port=args.rokoko_port)
+        return
 
     from orca_teleop.pipeline import run_local
 

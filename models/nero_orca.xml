@@ -6,7 +6,7 @@
   <default>
     <default class="orca_main">
       <mesh scale="0.001 0.001 0.001"/>
-      <joint margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" limited="true"/>
+      <joint limited="true" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
       <geom type="mesh" friction="1 0.005 0.001" margin="0.0005"/>
       <general ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
       <default class="orca_visual_base">
@@ -114,12 +114,12 @@
       <geom type="mesh" group="4" rgba="0 0 0 0" mesh="base_link"/>
       <body name="link1" pos="0 0 0.138">
         <inertial pos="-0.000768106 -5.71803e-05 -0.00686373" quat="0.998496 0.0243284 -0.0474034 0.0129308" mass="0.767105" diaginertia="0.000668361 0.000545022 0.000513619"/>
-        <joint name="joint1" range="-2.68781 2.68781" actuatorfrcrange="-24 24" armature="0.05" damping="1"/>
+        <joint name="joint1" pos="0 0 0" axis="0 0 1" range="-2.68781 2.68781" actuatorfrcrange="-24 24" armature="0.05" damping="1"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link1_visual_0_mat" mesh="link1_visual_0"/>
         <geom type="mesh" group="4" rgba="0 0 0 0" mesh="link1"/>
         <body name="link2" quat="1.89469e-08 1.89469e-08 0.707107 -0.707107">
           <inertial pos="0.000796867 -0.0789033 0.00111849" quat="0.724173 0.689546 -0.00281155 -0.00963045" mass="0.693819" diaginertia="0.00201137 0.00182229 0.000632162"/>
-          <joint name="joint2" range="-1.72788 1.72788" actuatorfrcrange="-24 24" armature="0.05" damping="1"/>
+          <joint name="joint2" pos="0 0 0" axis="0 0 1" range="-1.72788 1.72788" actuatorfrcrange="-24 24" armature="0.05" damping="1"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link2_visual_0_mat" mesh="link2_visual_0"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link2_visual_1_mat" mesh="link2_visual_1"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link2_visual_2_mat" mesh="link2_visual_2"/>
@@ -127,12 +127,12 @@
           <geom type="mesh" group="4" rgba="0 0 0 0" mesh="link2"/>
           <body name="link3" pos="0 -0.31 0" quat="-1.37922e-08 1.37922e-08 -0.707107 0.707107">
             <inertial pos="0.000145134 -0.00121379 -0.0486114" quat="0.999978 -0.00572699 -0.000503892 -0.00336231" mass="0.672465" diaginertia="0.0034323 0.00338703 0.000288126"/>
-            <joint name="joint3" range="-2.74017 2.74017" actuatorfrcrange="-16 16" armature="0.05" damping="1"/>
+            <joint name="joint3" pos="0 0 0" axis="0 0 1" range="-2.74017 2.74017" actuatorfrcrange="-16 16" armature="0.05" damping="1"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link3_visual_0_mat" mesh="link3_visual_0"/>
             <geom type="mesh" group="4" rgba="0 0 0 0" mesh="link3"/>
             <body name="link4" quat="-1.37922e-08 1.37922e-08 -0.707107 0.707107">
               <inertial pos="-0.000313346 -0.0567519 0.000760561" quat="0.743967 0.668141 -0.00555621 -0.00837616" mass="0.484514" diaginertia="0.000503972 0.000403451 0.00023296"/>
-              <joint name="joint4" range="-0.994838 2.1293" actuatorfrcrange="-16 16" armature="0.05" damping="1"/>
+              <joint name="joint4" pos="0 0 0" axis="0 0 1" range="-0.994838 2.1293" actuatorfrcrange="-16 16" armature="0.05" damping="1"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link4_visual_0_mat" mesh="link4_visual_0"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link4_visual_1_mat" mesh="link4_visual_1"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link4_visual_2_mat" mesh="link4_visual_2"/>
@@ -141,18 +141,18 @@
               <geom type="mesh" group="4" rgba="0 0 0 0" mesh="link4"/>
               <body name="link5" pos="0 -0.27001 0" quat="0.5 0.5 -0.5 0.5">
                 <inertial pos="0.00265591 0.00201196 -0.116209" quat="0.994383 -0.0299767 0.0135244 0.100607" mass="0.583684" diaginertia="0.000897188 0.000859677 0.000214923"/>
-                <joint name="joint5" range="-2.74017 2.74017" actuatorfrcrange="-8 8" armature="0.05" damping="1"/>
+                <joint name="joint5" pos="0 0 0" axis="0 0 1" range="-2.74017 2.74017" actuatorfrcrange="-8 8" armature="0.05" damping="1"/>
                 <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link5_visual_0_mat" mesh="link5_visual_0"/>
                 <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link5_visual_1_mat" mesh="link5_visual_1"/>
                 <geom type="mesh" group="4" rgba="0 0 0 0" mesh="link5"/>
                 <body name="link6" quat="0.5 0.5 -0.5 0.5">
                   <inertial pos="9.50151e-05 0.00107831 -0.00019111" quat="0.708463 0.705104 -0.0268147 0.0137484" mass="0.314041" diaginertia="6.02857e-05 5.75589e-05 4.69904e-05"/>
-                  <joint name="joint6" range="-0.715586 0.942479" actuatorfrcrange="-8 8" armature="0.05" damping="1"/>
+                  <joint name="joint6" pos="0 0 0" axis="0 0 1" range="-0.715586 0.942479" actuatorfrcrange="-8 8" armature="0.05" damping="1"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link6_visual_0_mat" mesh="link6_visual_0"/>
                   <geom type="mesh" group="4" rgba="0 0 0 0" mesh="link6"/>
                   <body name="link7" pos="0 -0.0235 0" quat="0.707107 0.707107 0 0">
                     <inertial pos="-0.00014 -0.0001 -0.00275" quat="0.5 0.5 -0.5 0.5" mass="1e-06" diaginertia="2e-07 1.1e-07 1.1e-07"/>
-                    <joint name="joint7" range="-1.55334 1.55334" actuatorfrcrange="-8 8" armature="0.05" damping="1"/>
+                    <joint name="joint7" pos="0 0 0" axis="0 0 1" range="-1.55334 1.55334" actuatorfrcrange="-8 8" armature="0.05" damping="1"/>
                     <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="link7_visual_0_mat" mesh="link7_visual_0"/>
                     <geom type="mesh" group="4" rgba="0 0 0 0" mesh="link7"/>
                     <frame name="revo2_flange">
@@ -164,20 +164,20 @@
                             <body name="orca_right_TopTower-Model_4a80d30e" pos="-0.01 0.0523 0" quat="-0.5 0.5 -0.5 -0.5">
                               <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_TopTower-Model"/>
                               <body name="orca_right_R-Carpals_8d1f1041" pos="-0.00187708 0.005 0.0895" quat="-0.707107 0 0 0.707107">
-                                <joint name="orca_right_wrist" range="-1.13446 0.610865" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0.005 0.00187708 -0.0495" axis="-1 0 0" limited="true"/>
+                                <joint name="orca_right_wrist" pos="0.005 0.00187708 -0.0495" axis="-1 0 0" limited="true" range="-1.13446 0.610865" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                 <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_R-Carpals"/>
                                 <body name="orca_right_T-TP-R_1c2b802d" pos="-0.0212134 0.0143325 -0.0217248" quat="0.659119 0.359511 -0.0724731 -0.656553">
-                                  <joint name="orca_right_t-cmc" range="-0.785398 0.575959" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0 0 0.00385" axis="0 0 -1" limited="true"/>
+                                  <joint name="orca_right_t-cmc" pos="0 0 0.00385" axis="0 0 -1" limited="true" range="-0.785398 0.575959" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                   <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_T-TP-R"/>
                                   <body name="orca_right_R-T-AP_a9723101" pos="-0.036 0 0" quat="0.819152 -0.573576 0 0">
-                                    <joint name="orca_right_t-abd" range="-0.314159 0.959931" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0.028 0 0" axis="0 0.34202 0.939693" limited="true"/>
+                                    <joint name="orca_right_t-abd" pos="0.028 0 0" axis="0 0.34202 0.939693" limited="true" range="-0.314159 0.959931" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                     <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_R-T-AP"/>
                                     <body name="orca_right_T-PP_68395e98" pos="0 0 0" quat="0 0.707107 0 -0.707107">
-                                      <joint name="orca_right_t-mcp" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                      <joint name="orca_right_t-mcp" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                       <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_T-PP_Skin"/>
                                       <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_T-PP_PP"/>
                                       <body name="orca_right_T-DP_b7429e50" pos="0.001 0 0.032" quat="1 0 0 0">
-                                        <joint name="orca_right_t-pip" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0 0 0" axis="0 -1 0" limited="true"/>
+                                        <joint name="orca_right_t-pip" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                         <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_T-DP_Skin"/>
                                         <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_T-DP_T-DP"/>
                                       </body>
@@ -185,56 +185,56 @@
                                   </body>
                                 </body>
                                 <body name="orca_right_I-AP-R_d95d02d1" pos="-0.0255755 0.000680925 0.0383573" quat="0.519647 0.566724 0.43173 -0.471593">
-                                  <joint name="orca_right_i-abd" range="-0.436332 0.523599" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0.01875 0 0.001" axis="0 0 1" limited="true"/>
+                                  <joint name="orca_right_i-abd" pos="0.01875 0 0.001" axis="0 0 -1" limited="true" range="-0.523599 0.436332" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                   <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_I-AP-R"/>
                                   <body name="orca_right_I-PP_bacbd481" pos="-0.000400968 0 0" quat="0.707107 0 -0.707107 0">
-                                    <joint name="orca_right_i-mcp" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                    <joint name="orca_right_i-mcp" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                     <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_I-PP_Skin"/>
                                     <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_I-PP_PP"/>
                                     <body name="orca_right_I-FingerTipAssembly_ec49c16c" pos="0.0015 0 0.037" quat="1 0 0 0">
-                                      <joint name="orca_right_i-pip" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                      <joint name="orca_right_i-pip" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                       <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_I-IP_IP"/>
                                       <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_I-FingerTipAssembly_I-DP-Skin"/>
                                     </body>
                                   </body>
                                 </body>
                                 <body name="orca_right_M-AP_e04a96f2" pos="-0.00075673 -0.00114633 0.0482518" quat="-0.500654 -0.500654 -0.499345 0.499345">
-                                  <joint name="orca_right_m-abd" range="-0.471239 0.471239" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0.01925 0 0.001" axis="0 0 1" limited="true"/>
+                                  <joint name="orca_right_m-abd" pos="0.01925 0 0.001" axis="0 0 -1" limited="true" range="-0.471239 0.471239" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                   <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_M-AP"/>
                                   <body name="orca_right_M-PP_08efa608" pos="-0.000616968 0 0" quat="-0.707107 0 0.707107 0">
-                                    <joint name="orca_right_m-mcp" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                    <joint name="orca_right_m-mcp" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                     <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_M-PP_Skin"/>
                                     <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_M-PP_PP"/>
                                     <body name="orca_right_M-FingerTipAssembly_34afb748" pos="0.002 0 0.04" quat="1 0 0 0">
-                                      <joint name="orca_right_m-pip" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                      <joint name="orca_right_m-pip" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                       <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_M-FingerTipAssembly_M-DP-Skin"/>
                                       <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_M-IP_IP"/>
                                     </body>
                                   </body>
                                 </body>
                                 <body name="orca_right_M-AP_6ec59111" pos="0.0230054 -0.00010145 0.0408507" quat="-0.485171 -0.438492 -0.554729 0.514401">
-                                  <joint name="orca_right_r-abd" range="-0.471239 0.471239" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0.01925 0 0.001" axis="0 0 1" limited="true"/>
+                                  <joint name="orca_right_r-abd" pos="0.01925 0 0.001" axis="0 0 -1" limited="true" range="-0.471239 0.471239" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                   <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_M-AP"/>
                                   <body name="orca_right_M-PP_8660a1eb" pos="-0.000616968 0 0" quat="-0.707107 0 0.707107 0">
-                                    <joint name="orca_right_r-mcp" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                    <joint name="orca_right_r-mcp" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                     <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_M-PP_Skin"/>
                                     <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_M-PP_PP"/>
                                     <body name="orca_right_M-FingerTipAssembly_424a8e75" pos="0.002 0 0.04" quat="1 0 0 0">
-                                      <joint name="orca_right_r-pip" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                      <joint name="orca_right_r-pip" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                       <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_M-FingerTipAssembly_M-DP-Skin"/>
                                       <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_M-IP_IP"/>
                                     </body>
                                   </body>
                                 </body>
                                 <body name="orca_right_P-AP_f5e42b61" pos="0.0466688 0.00500098 0.0291014" quat="-0.457318 -0.340199 -0.613869 0.546159">
-                                  <joint name="orca_right_p-abd" range="-0.523599 0.523599" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" pos="0.01775 0 0.001" axis="0 0 1" limited="true"/>
+                                  <joint name="orca_right_p-abd" pos="0.01775 0 0.001" axis="0 0 -1" limited="true" range="-0.523599 0.523599" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                   <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_P-AP"/>
                                   <body name="orca_right_P-PP_1d411b9b" pos="0 0 0" quat="-0.707107 0 0.707107 0">
-                                    <joint name="orca_right_p-mcp" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                    <joint name="orca_right_p-mcp" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.436332 1.74533" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                     <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_P-PP_Skin"/>
                                     <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_P-PP_PP"/>
                                     <body name="orca_right_P-FingerTipAssembly_cd219176" pos="0.001 0 0.031" quat="1 0 0 0">
-                                      <joint name="orca_right_p-pip" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001" axis="0 -1 0" limited="true"/>
+                                      <joint name="orca_right_p-pip" pos="0 0 0" axis="0 -1 0" limited="true" range="-0.261799 1.8675" margin="0.01" armature="0.001" damping="0.1" frictionloss="0.001"/>
                                       <geom type="mesh" friction="1 0.005 0.001" margin="0.0005" material="orca_black" mesh="orca_right_P-IP_IP"/>
                                       <geom type="mesh" contype="0" conaffinity="0" friction="1 0.005 0.001" margin="0.0005" material="orca_white" mesh="orca_right_P-FingerTipAssembly_P-DP-Skin"/>
                                     </body>
@@ -344,29 +344,29 @@
   </contact>
 
   <actuator>
-    <general name="nero_joint1_act" joint="joint1" ctrlrange="-2.68781 2.68781" ctrllimited="true" forcelimited="true" forcerange="-24 24" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
-    <general name="nero_joint2_act" joint="joint2" ctrlrange="-1.72788 1.72788" ctrllimited="true" forcelimited="true" forcerange="-24 24" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
-    <general name="nero_joint3_act" joint="joint3" ctrlrange="-2.74017 2.74017" ctrllimited="true" forcelimited="true" forcerange="-16 16" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
-    <general name="nero_joint4_act" joint="joint4" ctrlrange="-0.994838 2.1293" ctrllimited="true" forcelimited="true" forcerange="-16 16" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
-    <general name="nero_joint5_act" joint="joint5" ctrlrange="-2.74017 2.74017" ctrllimited="true" forcelimited="true" forcerange="-8 8" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
-    <general name="nero_joint6_act" joint="joint6" ctrlrange="-0.715586 0.942479" ctrllimited="true" forcelimited="true" forcerange="-8 8" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
-    <general name="nero_joint7_act" joint="joint7" ctrlrange="-1.55334 1.55334" ctrllimited="true" forcelimited="true" forcerange="-8 8" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
-    <general name="orca_right_wrist_actuator" joint="orca_right_wrist" ctrlrange="-1.13446 0.610865" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_p-abd_actuator" joint="orca_right_p-abd" ctrlrange="-0.523599 0.523599" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_p-mcp_actuator" joint="orca_right_p-mcp" ctrlrange="-0.436332 1.74533" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_p-pip_actuator" joint="orca_right_p-pip" ctrlrange="-0.261799 1.8675" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_r-abd_actuator" joint="orca_right_r-abd" ctrlrange="-0.471239 0.471239" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_r-mcp_actuator" joint="orca_right_r-mcp" ctrlrange="-0.436332 1.74533" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_r-pip_actuator" joint="orca_right_r-pip" ctrlrange="-0.261799 1.8675" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_m-abd_actuator" joint="orca_right_m-abd" ctrlrange="-0.471239 0.471239" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_m-mcp_actuator" joint="orca_right_m-mcp" ctrlrange="-0.436332 1.74533" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_m-pip_actuator" joint="orca_right_m-pip" ctrlrange="-0.261799 1.8675" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_i-abd_actuator" joint="orca_right_i-abd" ctrlrange="-0.436332 0.523599" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_i-mcp_actuator" joint="orca_right_i-mcp" ctrlrange="-0.436332 1.74533" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_i-pip_actuator" joint="orca_right_i-pip" ctrlrange="-0.261799 1.8675" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_t-cmc_actuator" joint="orca_right_t-cmc" ctrlrange="-0.785398 0.575959" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_t-abd_actuator" joint="orca_right_t-abd" ctrlrange="-0.314159 0.959931" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_t-mcp_actuator" joint="orca_right_t-mcp" ctrlrange="-0.436332 1.74533" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
-    <general name="orca_right_t-pip_actuator" joint="orca_right_t-pip" ctrlrange="-0.261799 1.8675" ctrllimited="true" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="nero_joint1_act" joint="joint1" ctrllimited="true" ctrlrange="-2.68781 2.68781" forcelimited="true" forcerange="-24 24" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
+    <general name="nero_joint2_act" joint="joint2" ctrllimited="true" ctrlrange="-1.72788 1.72788" forcelimited="true" forcerange="-24 24" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
+    <general name="nero_joint3_act" joint="joint3" ctrllimited="true" ctrlrange="-2.74017 2.74017" forcelimited="true" forcerange="-16 16" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
+    <general name="nero_joint4_act" joint="joint4" ctrllimited="true" ctrlrange="-0.994838 2.1293" forcelimited="true" forcerange="-16 16" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
+    <general name="nero_joint5_act" joint="joint5" ctrllimited="true" ctrlrange="-2.74017 2.74017" forcelimited="true" forcerange="-8 8" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
+    <general name="nero_joint6_act" joint="joint6" ctrllimited="true" ctrlrange="-0.715586 0.942479" forcelimited="true" forcerange="-8 8" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
+    <general name="nero_joint7_act" joint="joint7" ctrllimited="true" ctrlrange="-1.55334 1.55334" forcelimited="true" forcerange="-8 8" biastype="affine" gainprm="400" biasprm="0 -400 -40"/>
+    <general name="orca_right_wrist_actuator" joint="orca_right_wrist" ctrllimited="true" ctrlrange="-1.13446 0.610865" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_p-abd_actuator" joint="orca_right_p-abd" ctrllimited="true" ctrlrange="-0.523599 0.523599" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_p-mcp_actuator" joint="orca_right_p-mcp" ctrllimited="true" ctrlrange="-0.436332 1.74533" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_p-pip_actuator" joint="orca_right_p-pip" ctrllimited="true" ctrlrange="-0.261799 1.8675" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_r-abd_actuator" joint="orca_right_r-abd" ctrllimited="true" ctrlrange="-0.471239 0.471239" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_r-mcp_actuator" joint="orca_right_r-mcp" ctrllimited="true" ctrlrange="-0.436332 1.74533" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_r-pip_actuator" joint="orca_right_r-pip" ctrllimited="true" ctrlrange="-0.261799 1.8675" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_m-abd_actuator" joint="orca_right_m-abd" ctrllimited="true" ctrlrange="-0.471239 0.471239" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_m-mcp_actuator" joint="orca_right_m-mcp" ctrllimited="true" ctrlrange="-0.436332 1.74533" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_m-pip_actuator" joint="orca_right_m-pip" ctrllimited="true" ctrlrange="-0.261799 1.8675" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_i-abd_actuator" joint="orca_right_i-abd" ctrllimited="true" ctrlrange="-0.436332 0.523599" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_i-mcp_actuator" joint="orca_right_i-mcp" ctrllimited="true" ctrlrange="-0.436332 1.74533" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_i-pip_actuator" joint="orca_right_i-pip" ctrllimited="true" ctrlrange="-0.261799 1.8675" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_t-cmc_actuator" joint="orca_right_t-cmc" ctrllimited="true" ctrlrange="-0.785398 0.575959" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_t-abd_actuator" joint="orca_right_t-abd" ctrllimited="true" ctrlrange="-0.314159 0.959931" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_t-mcp_actuator" joint="orca_right_t-mcp" ctrllimited="true" ctrlrange="-0.436332 1.74533" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
+    <general name="orca_right_t-pip_actuator" joint="orca_right_t-pip" ctrllimited="true" ctrlrange="-0.261799 1.8675" forcelimited="true" forcerange="-1 1" biastype="affine" gainprm="2" biasprm="0 -2"/>
   </actuator>
 </mujoco>
