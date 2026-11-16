@@ -121,6 +121,23 @@ def write_scene(path: Path) -> None:
     )
 
 
+def flip_finger_abduction(hand: mujoco.MjSpec) -> None:
+    """Make the four finger ``*-abd`` joints follow the orca_core / v1 URDF sign.
+
+    In the official v2 MJCF a positive abduction moves every fingertip toward the index
+    side, while in the v1 URDF (which the retargeter and the orca_core config use) it
+    moves toward the pinky side; the ranges are mirrored too (index_abd: MJCF -25..30,
+    config -30..25). The thumb joints already agree, so they are left alone. Flipping
+    the axis here keeps the sim display consistent with the dataset actions.
+    """
+    for joint in hand.joints:
+        if not re.fullmatch(r"right_[imrp]-abd", joint.name):
+            continue
+        joint.axis = [-a for a in joint.axis]
+        lower, upper = joint.range
+        joint.range = [-upper, -lower]
+
+
 def attach() -> mujoco.MjSpec:
     if not NERO_XML.exists():
         raise FileNotFoundError(f"run prepare_nero.py first: missing {NERO_XML}")
@@ -130,6 +147,7 @@ def attach() -> mujoco.MjSpec:
     parent.compiler.eulerseq = "XYZ"
     parent.option.timestep = 0.002
     child = mujoco.MjSpec.from_file(str(HAND_XML))
+    flip_finger_abduction(child)
 
     link7 = parent.body("link7")
     flange = link7.add_frame(
