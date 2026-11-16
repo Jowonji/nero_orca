@@ -8,12 +8,14 @@
 # Env: NERO / ORCA (sim|shadow|real), SPEED (Nero %), NAME (dataset name), TASK, EPISODES,
 # REST (seconds between episodes to reset the scene, default 15), KEEP=1 to append instead of
 # --overwrite. The data camera is found by its serial, so the /dev/video number may change
-# between replugs. Each run appends its log to datasets/<NAME>.log.
+# between replugs; DATA_CAM_SERIAL / TELEOP_CAM_SERIAL override the serials (check them with
+# the camera list in docs/native-linux-recording-setup.md §3). Each run appends its log to
+# datasets/<NAME>.log.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-DATA_CAM_SERIAL=CP0H953001AR     # recording (observation.images.data) Orbbec
-TELEOP_CAM_SERIAL=CP0H95300129   # hand-tracking Orbbec (RGB-D)
+DATA_CAM_SERIAL=${DATA_CAM_SERIAL:-CP0H953001AR}     # recording (observation.images.data) Orbbec
+TELEOP_CAM_SERIAL=${TELEOP_CAM_SERIAL:-CP0H95300129} # hand-tracking Orbbec (RGB-D)
 
 NERO=${NERO:-real}
 ORCA=${ORCA:-real}
@@ -30,7 +32,11 @@ for dev in /dev/video*; do
     if [[ "$serial" == "$DATA_CAM_SERIAL" ]]; then data_index=${dev#/dev/video}; break; fi
 done
 if [[ -z "$data_index" ]]; then
-    echo "data camera $DATA_CAM_SERIAL not found (replug it?)" >&2
+    echo "data camera $DATA_CAM_SERIAL not found (replug it, or set DATA_CAM_SERIAL). MJPG cameras:" >&2
+    for dev in /dev/video*; do
+        v4l2-ctl -d "$dev" --list-formats 2>/dev/null | grep -q MJPG &&
+            echo "  $dev $(udevadm info -q property -n "$dev" | sed -n 's/^ID_SERIAL_SHORT=//p')" >&2
+    done
     exit 1
 fi
 if ! ip link show can0 2>/dev/null | grep -q "state UP" && [[ "$NERO" != sim ]]; then
