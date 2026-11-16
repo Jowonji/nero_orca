@@ -37,6 +37,13 @@ $PY teleop.py --source rokoko --nero-output sim --orca-output sim   # 기존 텔
 `teleop.py --source rokoko`는 `rokoko/worker.py`의 `run_rokoko()`를 쓴다: MediaPipe 인그레스·리타게터
 스레드 대신 글러브 스레드 하나가 `OrcaJointPositions`를 `actions_q`에 넣고, `CombinedNeroOrcaSink`는
 그대로다. 손목 위치 입력이 없으므로 **팔은 홈 자세에 머물고 손만 움직인다.**
+
+**Orca 손목 굽힘**은 `--pick-place`에서 웹캠과 같은 방식으로 따라온다: 글러브의 손목→중지 MCP 방향
+기울기(`rokoko.retarget.hand_pitch`, 아래가 +)를 `sink.update_hand_pitch()`로 넘기면
+`WristPositionMirror.update_hand_pitch()`가 고정 cue(`HOLD_CUE`) + 피치로 `WristPosition`을 만들고,
+기존 pick 모드 로직(첫 샘플을 기준각으로 잡고 상대 기울기를 `PICK_WRIST_RANGE` −40~25°로)이 그대로 돈다.
+cue가 고정이라 팔 오프셋은 0 — sink 경로 테스트에서 손목 0→+25→−15°로 따라가는 동안 팔 명령 변화 0°.
+pick 모드가 아니면 손목은 0° 그대로. 팔 위치 입력은 VIVE Ultimate Tracker로 할 계획이라 글러브 위치는 쓰지 않는다.
 `--nero-output`/`--orca-output`을 `real`로 주면 실제 로봇에도 그대로 나가므로(sink가 같다),
 실제 핸드의 벌림 방향을 확인하기 전까지는 `sim`으로만 쓴다.
 
@@ -108,7 +115,7 @@ SOURCE=rokoko NERO=sim ORCA=sim ./record_pick.sh         # pick-place 설정 + �
 
 ## 다음 단계
 
-- 손목(`wrist`)은 현재 0으로 두므로, pick-place 모드의 손목 로직과 합칠 때 `rightHand` 회전 사용 검토.
+- 팔 손목 위치: VIVE Ultimate Tracker (글러브의 `rightHand` 위치는 슈트 없이 추정값이라 쓰지 않음).
 - 실제 핸드 벌림 방향 확인 후 하드웨어 연결.
 - 팔: Rokoko `rightHand` 위치(전신 좌표계, m)를 `NeroArmIK`의 손목 목표로 쓰는 것도 가능하지만
   글러브만으로는 위치 드리프트가 있어 Quest 3/트래커 계획과 비교해 결정.

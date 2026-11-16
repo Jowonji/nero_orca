@@ -2,7 +2,8 @@
 
 ``run_rokoko`` mirrors ``orca_teleop.pipeline.run``: one worker thread turns glove frames into
 ``OrcaJointPositions`` on ``actions_q`` and the main thread is handed to ``sink.run_loop``.
-No wrist positions are produced, so the Nero arm stays at its home pose; only the hand moves.
+No wrist positions are produced, so the Nero arm stays at its home pose; the hand moves and,
+in pick-place mode, the Orca wrist follows the glove's hand tilt (``sink.update_hand_pitch``).
 """
 
 from __future__ import annotations
@@ -13,9 +14,11 @@ import signal
 import threading
 import time
 
+from collections.abc import Callable
+
 from orca_teleop.pipeline import _SHUTDOWN, RobotSink, _install_stop_handler
 
-from rokoko.retarget import RokokoHandRetargeter
+from rokoko.retarget import RokokoHandRetargeter, hand_pitch
 from rokoko.stream import DEFAULT_PORT, RokokoReceiver, frame_to_positions
 
 logger = logging.getLogger(__name__)
@@ -30,8 +33,13 @@ def rokoko_worker(
     actions_q: "queue.Queue[object]",
     stop_event: threading.Event,
     max_hz: float = 30.0,
+    pitch_hook: Callable[[float], None] | None = None,
 ) -> None:
-    """Poll the newest glove frame, retarget, and enqueue the hand command at ``max_hz``."""
+    """Poll the newest glove frame, retarget, and enqueue the hand command at ``max_hz``.
+
+    ``pitch_hook`` (the sink's ``update_hand_pitch``) receives the hand tilt each frame so the
+    Orca wrist can follow it in pick-place mode; the arm itself gets no position input.
+    """
     period = 1.0 / max_hz
     n_cmd = 0
     last_log = time.monotonic()
@@ -42,6 +50,13 @@ def rokoko_worker(
             frame = receiver.latest()
             pos = frame_to_positions(frame) if frame is not None else None
             if pos is not None:
+                if pitch_hook is not None:
+                    pitch = hand_pitch(pos)
+                    if pitch is not None:
+                        try:
+                            pitch_hook(pitch)
+                        except Exception:
+                            logger.debug("pitch_hook failed", exc_info=True)
                 q = retargeter(pos)
                 if q is not None:
                     # Keep only the newest command if the sink falls behind.
@@ -95,6 +110,7 @@ def run_rokoko(
     thread = threading.Thread(
         target=rokoko_worker,
         args=(receiver, retargeter, actions_q, stop_event, max_hz),
+        kwargs={"pitch_hook": getattr(sink, "update_hand_pitch", None)},
         name="rokoko",
         daemon=True,
     )

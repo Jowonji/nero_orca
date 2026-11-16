@@ -208,6 +208,16 @@ class WristPositionMirror:
                 hand_pitch=_hand_pitch(getattr(landmarks, "keypoints", None)),
             )
 
+    def update_hand_pitch(self, pitch: float) -> None:
+        """Hand tilt only (rad, down positive), e.g. from a glove IMU: the arm holds its
+        anchor (the cue never moves from HOLD_CUE) while pick mode follows the tilt."""
+        if not math.isfinite(pitch):
+            return
+        with self._lock:
+            self._latest = WristPosition(
+                wrist_image=HOLD_CUE.copy(), stamp=time.perf_counter(), hand_pitch=float(pitch)
+            )
+
     def snapshot(self) -> WristPosition | None:
         with self._lock:
             return self._latest
@@ -215,6 +225,10 @@ class WristPositionMirror:
     def reset(self) -> None:
         with self._lock:
             self._latest = None
+
+
+# A fixed image cue: anchoring on it and feeding it back gives a zero arm offset.
+HOLD_CUE = np.array([0.5, 0.5, 0.12], dtype=np.float64)
 
 
 class NeroArmIK:
