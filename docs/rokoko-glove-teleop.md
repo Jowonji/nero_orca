@@ -28,8 +28,17 @@ PY=../orca_teleop/.venv/bin/python
 $PY rokoko/listen.py --seconds 10                 # 수신 확인: 관절 이름, 값 범위, Hz
 $PY rokoko/record.py --seconds 30 --out rokoko/samples/x.npz   # 샘플 녹화 (.npz)
 $PY rokoko/play.py --file rokoko/samples/x.npz --loop          # 녹화 재생 → MuJoCo
-$PY rokoko/play.py --live                                       # 실시간 → MuJoCo
+$PY rokoko/play.py --live                                       # 실시간 → MuJoCo (단독 뷰어)
+
+export ORCAHAND_DESCRIPTION_DIR=$HOME/workspace/orcahand_description
+$PY teleop.py --source rokoko --nero-output sim --orca-output sim   # 기존 텔레옵 경로로 (sim)
 ```
+
+`teleop.py --source rokoko`는 `rokoko/worker.py`의 `run_rokoko()`를 쓴다: MediaPipe 인그레스·리타게터
+스레드 대신 글러브 스레드 하나가 `OrcaJointPositions`를 `actions_q`에 넣고, `CombinedNeroOrcaSink`는
+그대로다. 손목 위치 입력이 없으므로 **팔은 홈 자세에 머물고 손만 움직인다.**
+`--nero-output`/`--orca-output`을 `real`로 주면 실제 로봇에도 그대로 나가므로(sink가 같다),
+실제 핸드의 벌림 방향을 확인하기 전까지는 `sim`으로만 쓴다.
 
 패킷이 안 들어오면 `sudo tcpdump -i any udp port 14043 -c 5`로 도착 여부부터 본다.
 포트는 한 프로세스만 쓸 수 있으니 `play.py --live`와 `record.py`를 동시에 돌리지 말 것.
@@ -85,8 +94,7 @@ $PY rokoko/play.py --live                                       # 실시간 → 
 
 ## 다음 단계
 
-- `teleop.py` / `record_dataset.py`에 `--source rokoko` 추가: `RokokoReceiver` → `RokokoHandRetargeter`
-  → 기존 `actions_q`(`OrcaJointPositions`)에 넣으면 `CombinedNeroOrcaSink`는 그대로 쓸 수 있다.
+- `record_dataset.py`에도 `--source rokoko` 추가 (`run_rokoko`와 같은 방식; 녹화 루프는 sink 쪽이라 동일).
   손목(`wrist`)은 현재 0으로 두므로, pick-place 모드의 손목 로직과 합칠 때 `rightHand` 회전 사용 검토.
 - 실제 핸드 벌림 방향 확인 후 하드웨어 연결.
 - 팔: Rokoko `rightHand` 위치(전신 좌표계, m)를 `NeroArmIK`의 손목 목표로 쓰는 것도 가능하지만

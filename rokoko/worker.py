@@ -1,0 +1,111 @@
+"""Rokoko glove → ``CombinedNeroOrcaSink`` pipeline (replaces the MediaPipe ingress + retargeter).
+
+``run_rokoko`` mirrors ``orca_teleop.pipeline.run``: one worker thread turns glove frames into
+``OrcaJointPositions`` on ``actions_q`` and the main thread is handed to ``sink.run_loop``.
+No wrist positions are produced, so the Nero arm stays at its home pose; only the hand moves.
+"""
+
+from __future__ import annotations
+
+import logging
+import queue
+import signal
+import threading
+import time
+
+from orca_teleop.pipeline import _SHUTDOWN, RobotSink, _install_stop_handler
+
+from rokoko.retarget import RokokoHandRetargeter
+from rokoko.stream import DEFAULT_PORT, RokokoReceiver, frame_to_positions
+
+logger = logging.getLogger(__name__)
+
+QUEUE_MAXSIZE = 8
+JOIN_TIMEOUT = 5.0
+
+
+def rokoko_worker(
+    receiver: RokokoReceiver,
+    retargeter: RokokoHandRetargeter,
+    actions_q: "queue.Queue[object]",
+    stop_event: threading.Event,
+    max_hz: float = 30.0,
+) -> None:
+    """Poll the newest glove frame, retarget, and enqueue the hand command at ``max_hz``."""
+    period = 1.0 / max_hz
+    n_cmd = 0
+    last_log = time.monotonic()
+    logger.info("Rokoko worker on :%d; hold the hand open for the first second", receiver.port)
+    try:
+        while not stop_event.is_set():
+            t0 = time.monotonic()
+            frame = receiver.latest()
+            pos = frame_to_positions(frame) if frame is not None else None
+            if pos is not None:
+                q = retargeter(pos)
+                if q is not None:
+                    # Keep only the newest command if the sink falls behind.
+                    while True:
+                        try:
+                            actions_q.put_nowait(q)
+                            break
+                        except queue.Full:
+                            try:
+                                actions_q.get_nowait()
+                            except queue.Empty:
+                                pass
+                    n_cmd += 1
+            if time.monotonic() - last_log > 5.0:
+                logger.info("rokoko: %d hand commands, %d packets", n_cmd, receiver.packets)
+                last_log = time.monotonic()
+            dt = period - (time.monotonic() - t0)
+            if dt > 0:
+                time.sleep(dt)
+    finally:
+        try:
+            actions_q.put_nowait(_SHUTDOWN)
+        except queue.Full:
+            pass
+
+
+def run_rokoko(
+    sink: RobotSink,
+    urdf_path: str | None,
+    model_path: str | None = None,
+    port: int = DEFAULT_PORT,
+    max_hz: float = 30.0,
+    smoothing: float = 0.8,
+    max_step_deg: float | None = 30.0,
+) -> None:
+    receiver = RokokoReceiver(port)  # bind first so a port clash fails before the slow connect
+    actions_q: "queue.Queue[object]" = queue.Queue(maxsize=QUEUE_MAXSIZE)
+    stop_event = threading.Event()
+    previous_sigint = _install_stop_handler(stop_event)
+    logger.info("Quit: Ctrl+C in this terminal, or close MuJoCo.")
+
+    sink.connect()
+    if model_path is None:
+        model_path = getattr(sink, "retarget_model_path", None)
+        if model_path:
+            logger.info("Using sink-provided retargeter model: %s", model_path)
+    retargeter = RokokoHandRetargeter(
+        model_path, urdf_path, smoothing=smoothing, max_step_deg=max_step_deg
+    )
+
+    thread = threading.Thread(
+        target=rokoko_worker,
+        args=(receiver, retargeter, actions_q, stop_event, max_hz),
+        name="rokoko",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        sink.run_loop(actions_q, stop_event)
+    except KeyboardInterrupt:
+        stop_event.set()
+    finally:
+        stop_event.set()
+        thread.join(timeout=JOIN_TIMEOUT)
+        receiver.close()
+        sink.close()
+        signal.signal(signal.SIGINT, previous_sigint)
