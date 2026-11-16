@@ -15,6 +15,10 @@ Arm cue comparison: add ``--depth off`` (Orbbec color, image-only palm-width cue
 ``--root``/``--repo-id`` the dataset goes to ``datasets/nero-orca-sim-mediapipe-depth-<mode>``
 so the runs stay side by side.
 
+Rokoko Smartgloves instead of the webcam: ``--source rokoko`` (no ``--local``/``--depth``;
+hand only, the arm stays home; docs/rokoko-glove-teleop.md). ``record_pick.sh`` takes
+``SOURCE=rokoko``.
+
 Real hardware (see ``hardware.py``; check joints with ``mirror_real.py`` first): add
 ``--nero-output shadow|real`` and/or ``--orca-output shadow|real``. ``shadow`` reads the
 robot and shows the command as a ghost in the MuJoCo viewer without sending it.
@@ -47,7 +51,7 @@ def main() -> None:
     if "--backend" not in argv:
         argv = ["--backend", "combined", *argv]
     if "--root" not in argv and "--repo-id" not in argv:
-        name = "nero-orca-sim-mediapipe"
+        name = f"nero-orca-sim-{_arg_value(argv, '--source') or 'mediapipe'}"
         depth = _arg_value(argv, "--depth")
         if depth is not None:
             name = f"{name}-depth-{depth}"

@@ -92,10 +92,23 @@ $PY teleop.py --source rokoko --nero-output sim --orca-output sim   # 기존 텔
 | 손끝–손목 거리 (펴기/쥐기) | 검지 16.9→5.7 cm, 중지 17.2→5.0, 약지 16.2→4.4, 새끼 14.3→5.6, 엄지 12.2→6.0 |
 | 손 크기 자동 보정 비율 | 엄지 1.0, 검지 1.6, 중지 1.5, 약지 1.5, 새끼 1.5 (엄지만 다름 → 직접 계산으로 전환한 이유) |
 
+## 데이터셋 녹화
+
+`orca_teleop/scripts/record_dataset.py`에 `--source rokoko`를 넣었다 (gRPC 인그레스·퍼블리셔 대신
+`rokoko_worker` 스레드, 나머지 녹화 루프는 동일). nero_orca 쪽에서는:
+
+```bash
+$PY record_dataset.py --source rokoko --fps 15 --episode-end space --num-episodes 5 \
+    --urdf-path $ORCAHAND_DESCRIPTION_DIR/v1/models/urdf/orcahand_right.urdf \
+    --task "flex fingers, arm at rest" --overwrite      # → datasets/nero-orca-sim-rokoko
+SOURCE=rokoko NERO=sim ORCA=sim ./record_pick.sh         # pick-place 설정 + 데이터 카메라
+```
+
+`--local`/`--depth`/`--teleop-*`는 글러브에서는 쓰지 않는다. action의 손 17개는 글러브 값, 팔 7개는 홈.
+
 ## 다음 단계
 
-- `record_dataset.py`에도 `--source rokoko` 추가 (`run_rokoko`와 같은 방식; 녹화 루프는 sink 쪽이라 동일).
-  손목(`wrist`)은 현재 0으로 두므로, pick-place 모드의 손목 로직과 합칠 때 `rightHand` 회전 사용 검토.
+- 손목(`wrist`)은 현재 0으로 두므로, pick-place 모드의 손목 로직과 합칠 때 `rightHand` 회전 사용 검토.
 - 실제 핸드 벌림 방향 확인 후 하드웨어 연결.
 - 팔: Rokoko `rightHand` 위치(전신 좌표계, m)를 `NeroArmIK`의 손목 목표로 쓰는 것도 가능하지만
   글러브만으로는 위치 드리프트가 있어 Quest 3/트래커 계획과 비교해 결정.
