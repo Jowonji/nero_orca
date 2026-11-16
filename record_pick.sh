@@ -4,8 +4,9 @@
 #   ./record_pick.sh                       # arm real 20%, hand real, 1 episode, overwrite
 #   NERO=shadow ORCA=real ./record_pick.sh # hand only
 #   NAME=pick-cube TASK="pick the cube and place it left of the tray" EPISODES=20 KEEP=1 ./record_pick.sh
+#   SOURCE=rokoko NERO=sim ORCA=sim ./record_pick.sh   # Smartgloves drive the hand, arm stays home
 #
-# Env: NERO / ORCA (sim|shadow|real), SPEED (Nero %), NAME (dataset name), TASK, EPISODES,
+# Env: SOURCE (mediapipe|rokoko), NERO / ORCA (sim|shadow|real), SPEED (Nero %), NAME (dataset name), TASK, EPISODES,
 # REST (seconds between episodes to reset the scene, default 15), KEEP=1 to append instead of
 # --overwrite. The data camera is found by its serial, so the /dev/video number may change
 # between replugs; DATA_CAM_SERIAL / TELEOP_CAM_SERIAL override the serials (check them with
@@ -17,6 +18,7 @@ cd "$(dirname "$0")"
 DATA_CAM_SERIAL=${DATA_CAM_SERIAL:-CP0H953001AR}     # recording (observation.images.data) Orbbec
 TELEOP_CAM_SERIAL=${TELEOP_CAM_SERIAL:-CP0H95300129} # hand-tracking Orbbec (RGB-D)
 
+SOURCE=${SOURCE:-mediapipe}   # mediapipe (hand-tracking Orbbec) | rokoko (Smartgloves UDP, hand only)
 NERO=${NERO:-real}
 ORCA=${ORCA:-real}
 SPEED=${SPEED:-20}
@@ -50,11 +52,15 @@ echo "data camera /dev/video$data_index, nero=$NERO (speed $SPEED%), orca=$ORCA,
 overwrite=(--overwrite)
 [[ "${KEEP:-0}" == 1 ]] && overwrite=()
 
+if [[ "$SOURCE" == rokoko ]]; then
+    source_args=(--source rokoko)
+else
+    source_args=(--local --source mediapipe --show-video --depth orbbec
+                 --teleop-orbbec-serial "$TELEOP_CAM_SERIAL" --teleop-orbbec-laser-level 3)
+fi
+
 ../orca_teleop/.venv/bin/python record_dataset.py \
-    --local --source mediapipe --show-video \
-    --depth orbbec \
-    --teleop-orbbec-serial "$TELEOP_CAM_SERIAL" \
-    --teleop-orbbec-laser-level 3 \
+    "${source_args[@]}" \
     --mirror-lateral --pick-place \
     --camera "data:$data_index" \
     --nero-output "$NERO" --nero-speed "$SPEED" \
