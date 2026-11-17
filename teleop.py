@@ -19,7 +19,9 @@ a ghost, sends nothing) and the hand is ``sim``. ``real`` asks for confirmation.
 
 Stop with Ctrl+C in this terminal. The real Nero stays enabled at its last pose.
 ``--source rokoko`` takes the Rokoko Smartgloves UDP stream instead of the webcam
-(docs/rokoko-glove-teleop.md); the arm has no input then and stays at home.
+(docs/rokoko-glove-teleop.md); the arm has no input then and stays at home. Add
+``--rokoko-calibrate`` once per operator: it prompts three poses after the 1 s open-hand
+scale window and stores the result in rokoko/calib/hand.json, picked up by every later run.
 """
 
 from __future__ import annotations
@@ -74,6 +76,9 @@ def main() -> None:
                              "UDP stream (hand only; the arm stays home)")
     parser.add_argument("--rokoko-port", type=int, default=14043,
                         help="UDP port Rokoko Studio streams to (--source rokoko)")
+    parser.add_argument("--rokoko-calibrate", action="store_true",
+                        help="run the 3-pose glove calibration at start (fingers together, "
+                             "spread, fist) and save it to rokoko/calib/hand.json for later runs")
     parser.add_argument("--port", type=int, default=50051)
     parser.add_argument("--control-hz", type=float, default=15.0)
     parser.add_argument("--pick-place", action="store_true",
@@ -124,7 +129,8 @@ def main() -> None:
     if args.source == "rokoko":
         from rokoko.worker import run_rokoko
 
-        run_rokoko(sink, urdf_path=args.urdf_path, port=args.rokoko_port)
+        run_rokoko(sink, urdf_path=args.urdf_path, port=args.rokoko_port,
+                   calibrate=args.rokoko_calibrate)
         return
 
     from orca_teleop.pipeline import run_local

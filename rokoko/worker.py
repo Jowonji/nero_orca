@@ -91,7 +91,11 @@ def run_rokoko(
     max_hz: float = 30.0,
     smoothing: float = 0.8,
     max_step_deg: float | None = 30.0,
+    calibrate: bool = False,
+    calib_file: str | None = None,
 ) -> None:
+    """``calibrate`` runs the guided 3-pose calibration at start and saves it to ``calib_file``
+    (default ``rokoko/calib/hand.json``), which later runs load automatically."""
     receiver = RokokoReceiver(port)  # bind first so a port clash fails before the slow connect
     actions_q: "queue.Queue[object]" = queue.Queue(maxsize=QUEUE_MAXSIZE)
     stop_event = threading.Event()
@@ -103,8 +107,11 @@ def run_rokoko(
         model_path = getattr(sink, "retarget_model_path", None)
         if model_path:
             logger.info("Using sink-provided retargeter model: %s", model_path)
+    kwargs = {"calibrate": calibrate}
+    if calib_file:
+        kwargs["calib_file"] = calib_file
     retargeter = RokokoHandRetargeter(
-        model_path, urdf_path, smoothing=smoothing, max_step_deg=max_step_deg
+        model_path, urdf_path, smoothing=smoothing, max_step_deg=max_step_deg, **kwargs
     )
 
     thread = threading.Thread(

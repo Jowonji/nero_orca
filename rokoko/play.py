@@ -29,7 +29,7 @@ from orca_teleop.sim import _sim_joint_to_config_id  # noqa: E402
 
 from combined_sink import _orca_core_config_path  # noqa: E402
 from limits import apply_rest_pose  # noqa: E402
-from rokoko.retarget import RokokoHandRetargeter  # noqa: E402
+from rokoko.retarget import DEFAULT_CALIB_FILE, RokokoHandRetargeter  # noqa: E402
 from rokoko.stream import DEFAULT_PORT, RokokoReceiver, frame_to_positions  # noqa: E402
 
 SCENE_XML = ROOT / "models" / "nero_orca_scene.xml"
@@ -67,6 +67,10 @@ def main() -> None:
     ap.add_argument("--config-path", default=None, help="adaptive_analytical yaml override")
     ap.add_argument("--smoothing", type=float, default=0.5)
     ap.add_argument("--max-step-deg", type=float, default=12.0)
+    ap.add_argument("--calibrate", action="store_true",
+                    help="guided 3-pose glove calibration after the open-hand second; saved to --calib-file")
+    ap.add_argument("--calib-file", default=str(DEFAULT_CALIB_FILE),
+                    help="operator calibration JSON to load (or write with --calibrate); '' = built-in constants")
     args = ap.parse_args()
 
     model = mujoco.MjModel.from_xml_path(str(SCENE_XML))
@@ -76,6 +80,7 @@ def main() -> None:
     retargeter = RokokoHandRetargeter(
         str(_orca_core_config_path("right")), str(URDF),
         config_path=args.config_path, smoothing=args.smoothing, max_step_deg=args.max_step_deg,
+        calibrate=args.calibrate, calib_file=args.calib_file or None, say=print,
     )
     act = map_orca_actuators(model, retargeter.joint_ids)
     print("joints:", retargeter.joint_ids)
@@ -88,8 +93,8 @@ def main() -> None:
         rx = RokokoReceiver(args.port)
         print(f"live on 0.0.0.0:{args.port}; hold the hand open for the first second")
 
-    def apply(positions: np.ndarray) -> bool:
-        q = retargeter(positions)
+    def apply(positions: np.ndarray, t: float | None = None) -> bool:
+        q = retargeter(positions, t)
         if q is None:
             return False
         for jid, deg in zip(retargeter.joint_ids, retargeter.joint_array(q), strict=True):
@@ -112,7 +117,7 @@ def main() -> None:
                     if now < target:
                         time.sleep(min(target - now, 0.01))
                         continue
-                    n_cmd += apply(frames[i])
+                    n_cmd += apply(frames[i], float(times[i]))
                     i += 1
                     for _ in range(n_sub):
                         mujoco.mj_step(model, data)
