@@ -468,6 +468,12 @@ class CombinedNeroOrcaSink(RecordableSink):
         """Hand tilt without a wrist position (glove): Orca wrist follows it in pick mode."""
         self._wrist_positions.update_hand_pitch(pitch)
 
+    def set_arm_input_scale(self, scale: float) -> None:
+        """m of EE motion per m of metric wrist input (default arm_ik.METRIC_SCALE)."""
+        assert self._arm_ik is not None, "connect() first"
+        with self._lock:
+            self._arm_ik.metric_scale = float(scale)
+
     def update_hand_pose(self, palm_xyz: np.ndarray, pitch: float | None = None) -> None:
         """Metric wrist position (camera convention, m) + tilt, e.g. from the glove: the arm
         follows it through the same RGB-D path as the depth camera."""

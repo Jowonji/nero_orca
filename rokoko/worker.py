@@ -106,11 +106,12 @@ def run_rokoko(
     calibrate: bool = False,
     calib_file: str | None = None,
     arm: bool = False,
+    arm_scale: float | None = None,
 ) -> None:
     """``calibrate`` runs the guided 3-pose calibration at start and saves it to ``calib_file``
     (default ``rokoko/calib/hand.json``), which later runs load automatically. ``arm`` feeds
     the glove's estimated wrist position to the arm IK (``sink.update_hand_pose``) instead of
-    only the hand tilt."""
+    only the hand tilt; ``arm_scale`` overrides m of EE per m of hand (default 1.5)."""
     receiver = RokokoReceiver(port)  # bind first so a port clash fails before the slow connect
     actions_q: "queue.Queue[object]" = queue.Queue(maxsize=QUEUE_MAXSIZE)
     stop_event = threading.Event()
@@ -118,6 +119,9 @@ def run_rokoko(
     logger.info("Quit: Ctrl+C in this terminal, or close MuJoCo.")
 
     sink.connect()
+    if arm and arm_scale is not None:
+        sink.set_arm_input_scale(arm_scale)
+        logger.info("Glove arm input scale: %.2f m EE per m hand", arm_scale)
     if model_path is None:
         model_path = getattr(sink, "retarget_model_path", None)
         if model_path:

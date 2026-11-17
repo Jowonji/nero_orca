@@ -284,6 +284,7 @@ class NeroArmIK:
         self._pitch_filter = OneEuroFilter(np.array([1.0]), np.array([4.0]), FILTER_D_CUTOFF)
         self._pitch_zero: float | None = None
         self._wrist_teleop = 0.0  # deg, added to PICK_ORCA_WRIST_DEG
+        self.metric_scale = METRIC_SCALE  # m of EE per m of metric input; inputs may override
 
     @property
     def home_q(self) -> np.ndarray:
@@ -349,7 +350,7 @@ class NeroArmIK:
         assert self._origin is not None
         if self._metric:
             d = cue - self._origin
-            return METRIC_SCALE * np.array(
+            return self.metric_scale * np.array(
                 [d[2], self._lateral_sign * d[0], -d[1]], dtype=np.float64
             )
         dx = (cue[0] - self._origin[0]) * IMAGE_ASPECT

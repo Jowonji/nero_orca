@@ -79,6 +79,9 @@ def main() -> None:
     parser.add_argument("--rokoko-arm", action="store_true",
                         help="also drive the Nero arm from the glove's estimated wrist position "
                              "(Rokoko Studio body estimate; test path until the VIVE tracker)")
+    parser.add_argument("--rokoko-arm-scale", type=float, default=None,
+                        help="m of arm motion per m of glove wrist motion (default 1.5, as the "
+                             "depth camera); larger = bigger reach for small hand moves")
     parser.add_argument("--rokoko-calibrate", action="store_true",
                         help="run the 3-pose glove calibration at start (fingers together, "
                              "spread, fist) and save it to rokoko/calib/hand.json for later runs")
@@ -133,7 +136,8 @@ def main() -> None:
         from rokoko.worker import run_rokoko
 
         run_rokoko(sink, urdf_path=args.urdf_path, port=args.rokoko_port,
-                   calibrate=args.rokoko_calibrate, arm=args.rokoko_arm)
+                   calibrate=args.rokoko_calibrate, arm=args.rokoko_arm,
+                   arm_scale=args.rokoko_arm_scale)
         return
 
     from orca_teleop.pipeline import run_local
