@@ -63,13 +63,28 @@ PICK_HOME_EE = np.array([-0.52, 0.0, 0.23], dtype=np.float64)  # m; robot faces 
 # the EE body with open fingers and 11.9 cm with curled ones, so z >= 0.14 keeps it >= 2 cm
 # above the table.
 PICK_CLAMP_LO = np.array([-0.10, -0.25, -0.09], dtype=np.float64)
-PICK_CLAMP_HI = np.array([0.10, 0.25, 0.11], dtype=np.float64)
-# The box's far corners (62 cm out, 25 cm aside) are beyond reach, and aiming there let the
-# closest pose sag the hand toward the table. So the target's horizontal distance from the
-# base is capped too, 1.5 cm inside the reachable edge, which shrinks with height
-# (69.2 cm at EE z 14 cm, 60.4 cm at 34 cm; elbow >= 15 deg). Reach starts at 38 cm.
-PICK_MAX_RADIUS = ((0.14, 0.675), (0.34, 0.59))  # (EE z, max horizontal radius) in m
-PICK_MIN_RADIUS = 0.40  # m
+PICK_CLAMP_HI = np.array([0.10, 0.25, 0.30], dtype=np.float64)
+# The box's far corners are beyond reach, and aiming there let the closest pose sag the hand
+# toward the table. So the target's horizontal distance from the base is capped too, 1.5 cm
+# inside the reachable edge, which shrinks with height (elbow >= 15 deg). The edge depends on
+# the held tilt, so the tables are keyed by PICK_PITCH in degrees (nearest key is used):
+#   90 (level flange, 2026-11-17 sweep): r_max 76 cm at EE z 14 cm .. 47 cm at 64 cm, reach
+#       starts at 47 cm low down and 30 cm from z 39 cm; the box top (+30 cm, z 53 cm) still
+#       has 59 cm of reach at the home radius 52 cm.
+#   135 (fingers ~45 deg down): r_max 69.2 cm at z 14 cm, 60.4 cm at 34 cm; reach from 38 cm.
+# "z_hi" is the box ceiling (m above home) the table covers; PICK_CLAMP_HI[2] is cut to it.
+PICK_REACH: dict[int, dict] = {
+    90: {
+        "max": ((0.14, 0.745), (0.24, 0.735), (0.34, 0.705), (0.44, 0.655), (0.54, 0.575), (0.64, 0.455)),
+        "min": ((0.14, 0.485), (0.24, 0.465), (0.34, 0.395), (0.39, 0.325), (0.44, 0.315)),
+        "z_hi": 0.30,
+    },
+    135: {
+        "max": ((0.14, 0.675), (0.34, 0.59)),
+        "min": ((0.14, 0.40), (0.34, 0.40)),
+        "z_hi": 0.11,
+    },
+}
 # Slower target so the recorded action is one the arm actually follows (at 0.8 m/s joint 2
 # lagged up to 41 deg and tripped the tracking-error hold).
 PICK_MAX_EE_SPEED = 0.3  # m/s
@@ -107,12 +122,26 @@ IK_ITERS = 10
 NULLSPACE_GAIN = 0.05  # per IK iteration, toward REST_QPOS
 
 
-def _clamp_radius(goal: np.ndarray) -> np.ndarray:
+def _reach_tables(pick_pitch_rad: float) -> dict:
+    deg = math.degrees(pick_pitch_rad)
+    key = min(PICK_REACH, key=lambda k: abs(k - deg))
+    if abs(key - deg) > 10.0:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "no reach table for pick pitch %.0f deg; using the %d deg one", deg, key
+        )
+    return PICK_REACH[key]
+
+
+def _clamp_radius(goal: np.ndarray, tables: dict) -> np.ndarray:
     """Pull a pick-mode target inside the reachable horizontal radius for its height."""
-    (z0, r0), (z1, r1) = PICK_MAX_RADIUS
-    r_max = float(np.interp(goal[2], [z0, z1], [r0, r1]))
+    zs, rs = zip(*tables["max"], strict=True)
+    r_max = float(np.interp(goal[2], zs, rs))
+    zs, rs = zip(*tables["min"], strict=True)
+    r_min = float(np.interp(goal[2], zs, rs))
     r = float(np.hypot(goal[0], goal[1]))
-    r_clamped = float(np.clip(r, PICK_MIN_RADIUS, r_max))
+    r_clamped = float(np.clip(r, r_min, r_max))
     if r == r_clamped or r == 0.0:
         return goal
     out = goal.copy()
@@ -288,6 +317,7 @@ class NeroArmIK:
             raise ValueError("track_orientation is the free 6-DoF mode; not with pick_place")
         self._model = model
         self._pick_pitch = PICK_PITCH if pick_pitch_deg is None else math.radians(pick_pitch_deg)
+        self._reach = _reach_tables(self._pick_pitch)
         self._lateral_sign = -1.0 if mirror_lateral else 1.0
         self._orient = bool(track_orientation)
         # Camera convention (x right, y down, z away) -> robot (X back, Y, Z up); det may be -1
@@ -306,7 +336,9 @@ class NeroArmIK:
         self._hi = np.array([spec["sim_upper"] for spec in JOINTS], dtype=np.float64)
         self._pick = bool(pick_place)
         self._clamp_lo = PICK_CLAMP_LO if self._pick else -POS_CLAMP
-        self._clamp_hi = PICK_CLAMP_HI if self._pick else POS_CLAMP
+        self._clamp_hi = PICK_CLAMP_HI.copy() if self._pick else POS_CLAMP
+        if self._pick:
+            self._clamp_hi[2] = min(self._clamp_hi[2], float(self._reach["z_hi"]))
         self._max_ee_speed = PICK_MAX_EE_SPEED if self._pick else MAX_EE_SPEED
         if self._pick or self._orient:
             self._rest_q = self._pick_home_q()  # level flange in front of the robot
@@ -456,7 +488,7 @@ class NeroArmIK:
         offset = np.clip(offset, lo, self._clamp_hi)
         goal = self._rest_ee + offset
         if self._pick:
-            goal = _clamp_radius(goal)
+            goal = _clamp_radius(goal, self._reach)
 
         step = goal - self._target
         max_step = self._max_ee_speed * dt
