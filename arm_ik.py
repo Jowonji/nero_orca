@@ -43,12 +43,12 @@ POS_CLAMP = np.array([0.25, 0.30, 0.25], dtype=np.float64)
 MAX_EE_SPEED = 0.8  # m/s
 
 # Pick-and-place mode (--pick-place): J3/J5/J6 locked at 0 so J2, J4, J7 share one axis,
-# and J7 = PICK_PITCH - J2 - J4 keeps the hand at one tilt (fingers ~45 deg down). J1, J2, J4
+# and J7 = PICK_PITCH - J2 - J4 keeps the hand at one tilt (flange level by default). J1, J2, J4
 # set the hand position: a 3-DoF action that is easier to learn. Fixed tilt shrinks the reach,
 # so the home sits mid-workspace in front of the robot instead of at REST_QPOS. (A flat palm,
 # by the arm or by the Orca wrist, and a +30 deg Orca wrist were tried and not kept.)
 PICK_LOCKED = (2, 4, 5)  # J3, J5, J6 indices
-PICK_PITCH = math.radians(135.0)
+PICK_PITCH = math.radians(90.0)  # flange (J7 -> Orca wrist) level; 135 was fingers ~45 deg down
 PICK_ORCA_WRIST_DEG = 0.0  # Orca wrist at the anchor; the teleop adds the hand's tilt to it
 # Orca wrist teleop: the operator's hand tilt (wrist->middle-MCP pitch in the camera frame),
 # relative to the moment the hand was (re)acquired, moves the Orca wrist; positive = fingers
@@ -257,8 +257,8 @@ class NeroArmIK:
         """``mirror_lateral``: the camera faces the operator (a mirror view), so the
         operator's right is the image's left; flip robot Y so right still means right.
         ``pick_place``: locked-wrist 3-DoF mode around ``PICK_HOME_EE`` (see PICK_*).
-        ``pick_pitch_deg``: J2+J4+J7 held in pick mode (default PICK_PITCH 135 = fingers
-        ~45 deg down; 90 = hand level, pointing forward)."""
+        ``pick_pitch_deg``: J2+J4+J7 held in pick mode (default PICK_PITCH 90 = flange
+        level, hand pointing forward; 135 = fingers ~45 deg down for top-down table grasps)."""
         import mujoco
 
         self._model = model
