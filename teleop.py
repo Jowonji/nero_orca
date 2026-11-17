@@ -89,6 +89,9 @@ def main() -> None:
     parser.add_argument("--control-hz", type=float, default=15.0)
     parser.add_argument("--pick-place", action="store_true",
                         help="3-DoF arm: wrist joints locked, hand 45 deg down, home in front")
+    parser.add_argument("--pick-pitch-deg", type=float, default=None,
+                        help="hand tilt held in --pick-place: J2+J4+J7 in deg (default 135 = "
+                             "fingers ~45 deg down for table grasps; 90 = level, pointing forward)")
     parser.add_argument("--mirror-lateral", action="store_true",
                         help="camera faces the operator: flip left/right so right means right")
     parser.add_argument("--no-show-video", dest="show_video", action="store_false",
@@ -130,6 +133,7 @@ def main() -> None:
         orca_device=orca_device,
         mirror_lateral=args.mirror_lateral,
         pick_place=args.pick_place,
+        pick_pitch_deg=args.pick_pitch_deg,
     )
 
     if args.source == "rokoko":

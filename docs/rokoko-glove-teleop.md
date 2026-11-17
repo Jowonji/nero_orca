@@ -149,12 +149,19 @@ SOURCE=rokoko NERO=sim ORCA=sim ./record_pick.sh         # pick-place 설정 + �
 $PY orca_joint_test.py --joint index_abd --deg 20          # 관절 방향 확인 (토크 켜고 ±20°, 끝나면 0°·토크 끔)
 $PY teleop.py --source rokoko --pick-place --nero-output sim --orca-output real \
     --model-path config/orcahand_right/config.yaml          # 글러브 → 실물 손, 팔은 시뮬
-$PY teleop.py --source rokoko --pick-place --mirror-lateral --rokoko-arm \
+$PY teleop.py --source rokoko --pick-place --pick-pitch-deg 100 --mirror-lateral --rokoko-arm \
     --nero-output sim --orca-output sim                     # 팔도 글러브 위치로 (시뮬에서 먼저)
 SOURCE=rokoko NERO=real ORCA=real SPEED=10 ./record_pick.sh  # 팔까지 (can0 up + External CAN Push 먼저)
 ```
 
 11/17: 실물 손이 시뮬과 같게 따라옴. 사람 손과의 차이는 사용자별 보정으로 처리.
+
+**손 기울기**: pick 모드는 J2+J4+J7을 `PICK_PITCH` 135°로 묶어 손가락이 약 45° 아래를 본다(테이블 위에서 집는
+자세). 글러브로 앞의 물건을 잡기에는 너무 숙여져 있어 `--pick-pitch-deg`로 바꿀 수 있게 했다
+(`NeroArmIK(pick_pitch_deg=…)`, `record_dataset.py`에도 같은 옵션). 90이면 손이 수평으로 앞을 향하고 105는 약 15° 아래.
+팔 작업공간(클램프·반경)은 그대로라 EE 이동 범위는 같고, 글러브 손목 굽힘도 그대로 더해진다.
+pick 모드 작업공간은 앞뒤 ±10 cm(반경 0.40~0.675 m 제한으로 넓혀도 ±12), 좌우 ±25, 위아래 −9~+11 cm로 작다.
+범위를 보려면 `--pick-place` 없이(±25/30/25 cm, 6자유도) 돌리고, `--rokoko-arm-scale`(기본 1.5)로 배율을 키운다.
 
 ## 다음 단계
 

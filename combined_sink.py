@@ -168,6 +168,7 @@ class CombinedNeroOrcaSink(RecordableSink):
         orca_device: OrcaDevice | None = None,
         mirror_lateral: bool = False,
         pick_place: bool = False,
+        pick_pitch_deg: float | None = None,
     ) -> None:
         self._scene_xml = Path(scene_xml) if scene_xml is not None else SCENE_XML
         self._camera_config = camera_config or SimCameraConfig(
@@ -178,6 +179,7 @@ class CombinedNeroOrcaSink(RecordableSink):
         self._show_viewer = bool(show_viewer)
         self._mirror_lateral = bool(mirror_lateral)
         self._pick_place = bool(pick_place)
+        self._pick_pitch_deg = None if pick_pitch_deg is None else float(pick_pitch_deg)
         self._home_q = np.array(REST_QPOS, dtype=np.float64)
         if nero_output != "sim" and nero_device is None:
             nero_device = PyAgxNero(channel=nero_can)
@@ -246,7 +248,10 @@ class CombinedNeroOrcaSink(RecordableSink):
 
         self._wrist_positions.reset()
         self._arm_ik = NeroArmIK(
-            model, mirror_lateral=self._mirror_lateral, pick_place=self._pick_place
+            model,
+            mirror_lateral=self._mirror_lateral,
+            pick_place=self._pick_place,
+            pick_pitch_deg=self._pick_pitch_deg,
         )
         self._home_q = self._arm_ik.home_q
         apply_rest_pose(model, data, self._home_q)

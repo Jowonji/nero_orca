@@ -247,13 +247,22 @@ HOLD_CUE = np.array([0.5, 0.5, 0.12], dtype=np.float64)
 
 
 class NeroArmIK:
-    def __init__(self, model, mirror_lateral: bool = False, pick_place: bool = False) -> None:
+    def __init__(
+        self,
+        model,
+        mirror_lateral: bool = False,
+        pick_place: bool = False,
+        pick_pitch_deg: float | None = None,
+    ) -> None:
         """``mirror_lateral``: the camera faces the operator (a mirror view), so the
         operator's right is the image's left; flip robot Y so right still means right.
-        ``pick_place``: locked-wrist 3-DoF mode around ``PICK_HOME_EE`` (see PICK_*)."""
+        ``pick_place``: locked-wrist 3-DoF mode around ``PICK_HOME_EE`` (see PICK_*).
+        ``pick_pitch_deg``: J2+J4+J7 held in pick mode (default PICK_PITCH 135 = fingers
+        ~45 deg down; 90 = hand level, pointing forward)."""
         import mujoco
 
         self._model = model
+        self._pick_pitch = PICK_PITCH if pick_pitch_deg is None else math.radians(pick_pitch_deg)
         self._lateral_sign = -1.0 if mirror_lateral else 1.0
         self._ee = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, EE_BODY)
         if self._ee < 0:
@@ -460,7 +469,7 @@ class NeroArmIK:
         jacp = np.zeros((3, self._model.nv))
         try:
             for _ in range(IK_ITERS):
-                q[6] = PICK_PITCH - q[1] - q[3]
+                q[6] = self._pick_pitch - q[1] - q[3]
                 data.qpos[:7] = q
                 mujoco.mj_forward(self._model, data)
                 err = target - np.asarray(data.xpos[self._ee], dtype=np.float64)
@@ -475,11 +484,11 @@ class NeroArmIK:
                 q[act] = np.clip(q[act] + np.clip(dq, -STEP_CLIP, STEP_CLIP), self._lo[act], self._hi[act])
                 q[3] = max(q[3], PICK_J4_MIN)
                 # J7 = PICK_PITCH - J2 - J4 must stay inside its limits, so bound J2 + J4.
-                q[3] = np.clip(q[3], PICK_PITCH - self._hi[6] - q[1], PICK_PITCH - self._lo[6] - q[1])
+                q[3] = np.clip(q[3], self._pick_pitch - self._hi[6] - q[1], self._pick_pitch - self._lo[6] - q[1])
                 if q[3] < PICK_J4_MIN:  # only J2 can restore the bound without flipping
                     q[3] = PICK_J4_MIN
-                    q[1] = np.clip(PICK_PITCH - self._hi[6] - q[3], self._lo[1], self._hi[1])
-            q[6] = np.clip(PICK_PITCH - q[1] - q[3], self._lo[6], self._hi[6])
+                    q[1] = np.clip(self._pick_pitch - self._hi[6] - q[3], self._lo[1], self._hi[1])
+            q[6] = np.clip(self._pick_pitch - q[1] - q[3], self._lo[6], self._hi[6])
             return q
         except np.linalg.LinAlgError:
             return self._q.copy()
