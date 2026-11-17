@@ -89,6 +89,9 @@ def main() -> None:
     parser.add_argument("--control-hz", type=float, default=15.0)
     parser.add_argument("--pick-place", action="store_true",
                         help="3-DoF arm: wrist joints locked, flange level (see --pick-pitch-deg), home in front")
+    parser.add_argument("--arm-6dof", action="store_true",
+                        help="free mode with orientation: all 7 Nero joints follow the hand's "
+                             "position and rotation (glove IMU / tracker); not with --pick-place")
     parser.add_argument("--pick-pitch-deg", type=float, default=None,
                         help="hand tilt held in --pick-place: J2+J4+J7 in deg (default 90 = "
                              "flange level, hand forward; 135 = fingers ~45 deg down, top-down grasp)")
@@ -102,6 +105,8 @@ def main() -> None:
                         help="use in-memory fake Nero/Orca for shadow/real (no robot)")
     parser.add_argument("--yes", action="store_true", help="skip the real-output confirmation")
     args = parser.parse_args()
+    if args.arm_6dof and args.pick_place:
+        parser.error("--arm-6dof is the free 6-DoF mode; drop --pick-place")
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s | %(message)s", datefmt="%H:%M:%S"
@@ -134,6 +139,7 @@ def main() -> None:
         mirror_lateral=args.mirror_lateral,
         pick_place=args.pick_place,
         pick_pitch_deg=args.pick_pitch_deg,
+        track_orientation=args.arm_6dof,
     )
 
     if args.source == "rokoko":

@@ -20,8 +20,8 @@ from collections.abc import Callable
 
 from orca_teleop.pipeline import _SHUTDOWN, RobotSink, _install_stop_handler
 
-from rokoko.retarget import RokokoHandRetargeter, hand_pitch, wrist_camera_xyz
-from rokoko.stream import DEFAULT_PORT, RokokoReceiver, frame_to_positions
+from rokoko.retarget import RokokoHandRetargeter, hand_pitch, hand_rotation_matrix, wrist_camera_xyz
+from rokoko.stream import DEFAULT_PORT, RokokoReceiver, frame_to_positions, frame_to_rotations
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +36,15 @@ def rokoko_worker(
     stop_event: threading.Event,
     max_hz: float = 30.0,
     pitch_hook: Callable[[float], None] | None = None,
-    pose_hook: Callable[[object, float | None], None] | None = None,
+    pose_hook: Callable[[object, float | None, object], None] | None = None,
 ) -> None:
     """Poll the newest glove frame, retarget, and enqueue the hand command at ``max_hz``.
 
     ``pitch_hook`` (the sink's ``update_hand_pitch``) receives the hand tilt each frame so the
     Orca wrist can follow it in pick-place mode while the arm gets no position input.
     ``pose_hook`` (the sink's ``update_hand_pose``) instead receives the glove's estimated
-    wrist position in the camera convention plus the tilt, so the arm follows it too.
+    wrist position in the camera convention, the tilt and the hand's 3x3 world orientation
+    (IMU-based, for the 6-DoF arm mode), so the arm follows it too.
     """
     period = 1.0 / max_hz
     n_cmd = 0
@@ -58,8 +59,10 @@ def rokoko_worker(
                 if pose_hook is not None:
                     xyz = wrist_camera_xyz(pos)
                     if xyz is not None:
+                        rots = frame_to_rotations(frame)
+                        rot = hand_rotation_matrix(rots) if rots is not None else None
                         try:
-                            pose_hook(xyz, hand_pitch(pos))
+                            pose_hook(xyz, hand_pitch(pos), rot)
                         except Exception:
                             logger.debug("pose_hook failed", exc_info=True)
                 elif pitch_hook is not None:

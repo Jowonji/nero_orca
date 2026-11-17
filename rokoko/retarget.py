@@ -279,6 +279,25 @@ def wrist_camera_xyz(positions: np.ndarray) -> np.ndarray | None:
     return w * ROKOKO_TO_CAMERA
 
 
+def hand_rotation_matrix(rotations: np.ndarray) -> np.ndarray | None:
+    """World orientation of ``rightHand`` as a 3x3 matrix from the (21, 4) xyzw rotations.
+
+    Rokoko's rotations are global (checked on samples: the hand's local -y follows the
+    wrist→middle-MCP direction). The arm IK uses it only relative to its first sample and
+    conjugates it into the robot frame, so no handedness fix is applied here; numerically the
+    camera-convention delta equals the Rokoko one because that frame change is -I.
+    """
+    q = np.asarray(rotations, dtype=float)[0]
+    if q.shape != (4,) or not np.all(np.isfinite(q)) or np.linalg.norm(q) < 1e-6:
+        return None
+    x, y, z, w = q / np.linalg.norm(q)
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
 def hand_pitch(positions: np.ndarray) -> float | None:
     """Wrist→middle-MCP tilt below horizontal (rad, down positive) from raw Rokoko positions.
 

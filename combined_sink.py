@@ -169,6 +169,7 @@ class CombinedNeroOrcaSink(RecordableSink):
         mirror_lateral: bool = False,
         pick_place: bool = False,
         pick_pitch_deg: float | None = None,
+        track_orientation: bool = False,
     ) -> None:
         self._scene_xml = Path(scene_xml) if scene_xml is not None else SCENE_XML
         self._camera_config = camera_config or SimCameraConfig(
@@ -180,6 +181,7 @@ class CombinedNeroOrcaSink(RecordableSink):
         self._mirror_lateral = bool(mirror_lateral)
         self._pick_place = bool(pick_place)
         self._pick_pitch_deg = None if pick_pitch_deg is None else float(pick_pitch_deg)
+        self._track_orientation = bool(track_orientation)
         self._home_q = np.array(REST_QPOS, dtype=np.float64)
         if nero_output != "sim" and nero_device is None:
             nero_device = PyAgxNero(channel=nero_can)
@@ -252,6 +254,7 @@ class CombinedNeroOrcaSink(RecordableSink):
             mirror_lateral=self._mirror_lateral,
             pick_place=self._pick_place,
             pick_pitch_deg=self._pick_pitch_deg,
+            track_orientation=self._track_orientation,
         )
         self._home_q = self._arm_ik.home_q
         apply_rest_pose(model, data, self._home_q)
@@ -479,10 +482,16 @@ class CombinedNeroOrcaSink(RecordableSink):
         with self._lock:
             self._arm_ik.metric_scale = float(scale)
 
-    def update_hand_pose(self, palm_xyz: np.ndarray, pitch: float | None = None) -> None:
-        """Metric wrist position (camera convention, m) + tilt, e.g. from the glove: the arm
-        follows it through the same RGB-D path as the depth camera."""
-        self._wrist_positions.update_metric(palm_xyz, pitch)
+    def update_hand_pose(
+        self,
+        palm_xyz: np.ndarray,
+        pitch: float | None = None,
+        hand_rot: np.ndarray | None = None,
+    ) -> None:
+        """Metric wrist position (camera convention, m) + tilt (+ 3x3 orientation for the
+        6-DoF arm mode), e.g. from the glove: the arm follows it through the same RGB-D path
+        as the depth camera."""
+        self._wrist_positions.update_metric(palm_xyz, pitch, hand_rot)
 
     def go_home(self) -> None:
         assert self._model is not None and self._data is not None

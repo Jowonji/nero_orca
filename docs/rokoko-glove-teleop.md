@@ -164,6 +164,30 @@ J7→Orca 손목이 정확히 수평, 손이 앞을 향함)로 바꿨다**. `--p
 pick 모드 작업공간은 앞뒤 ±10 cm(반경 0.40~0.675 m 제한으로 넓혀도 ±12), 좌우 ±25, 위아래 −9~+11 cm로 작다.
 범위를 보려면 `--pick-place` 없이(±25/30/25 cm, 6자유도) 돌리고, `--rokoko-arm-scale`(기본 1.5)로 배율을 키운다.
 
+### 6자유도 모드 (`--arm-6dof`)
+
+pick 모드는 손 방향을 고정한 3자유도라 사람 팔처럼 보이지 않는다. `--arm-6dof`는 `--pick-place` 없이 쓰는 free
+모드의 확장으로, Nero 7관절이 손의 **위치와 방향 변화**를 같이 따라간다 (`NeroArmIK(track_orientation=True)`).
+
+```bash
+$PY teleop.py --source rokoko --arm-6dof --mirror-lateral --rokoko-arm --nero-output sim --orca-output sim
+```
+
+- 방향 입력은 Rokoko `rightHand`의 전역 회전(IMU 기반, 위치 추정과 달리 믿을 만함; 샘플에서 손 로컬 −y가
+  손목→중지 MCP 방향과 내적 −1.00). `rokoko.retarget.hand_rotation_matrix` → `sink.update_hand_pose(xyz, pitch, rot)`
+  → `WristPosition.hand_rot`. 트래커가 오면 위치(그리고 원하면 방향)만 갈아끼운다.
+- 첫 샘플을 기준으로 한 **상대 회전**만 쓴다: ΔR = R·R₀ᵀ(Rokoko 좌표)를 카메라→로봇 행렬 T로 켤레(T ΔR Tᵀ)해
+  기준 시점의 EE 방향에 곱한다. 절대 방향을 안 쓰므로 글러브 본의 축 정의·왼손 좌표계 문제가 없다.
+  회전벡터에 One Euro 필터, 180°/s 속도 제한.
+- IK: 6×7 자코비안(위치 + `ORIENT_WEIGHT` 0.2 m/rad × 회전) 감쇠 최소제곱, 여유 자유도는 홈 자세(플랜지 수평,
+  pick 홈과 같음)로. 정적 목표에 위치 0.0 cm·회전 0.2° 수렴(IK 해 기준). 작업공간·속도는 free 모드(±25/30/25 cm, 0.8 m/s).
+- 시뮬에서 보이는 지연(녹화 샘플 재생: 방향 중앙값 18°, 위치 4.5 cm)은 **시뮬 Nero 서보의 토크 제한**이다. 필터+속도제한
+  1°, IK 0.1°, 서보 19°로 분해됐고, kp를 400→4000으로 올려도 18°라 게인이 아니라 `forcerange`(URDF effort, J2 24 Nm 등)에
+  막힌다. 정지 목표에서는 3°/2 cm(중력 처짐 J2 1.7°, Orca 손목 액추에이터 kp 2라 손목 7° 처짐). 실물은 Nero 자체 제어기와
+  `--nero-speed`가 결정한다.
+- 실물에서는 방향까지 따라가면 자기 충돌·관절 한계 위험이 있으므로 시뮬에서 충분히 본 뒤 `--nero-speed 10`으로.
+  `record_dataset.py`에는 아직 안 넣었다.
+
 ## 다음 단계
 
 - 팔 손목 위치: VIVE Ultimate Tracker (글러브의 `rightHand` 위치는 슈트 없이 추정값이라 쓰지 않음).
