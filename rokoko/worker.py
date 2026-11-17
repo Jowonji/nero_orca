@@ -2,8 +2,10 @@
 
 ``run_rokoko`` mirrors ``orca_teleop.pipeline.run``: one worker thread turns glove frames into
 ``OrcaJointPositions`` on ``actions_q`` and the main thread is handed to ``sink.run_loop``.
-No wrist positions are produced, so the Nero arm stays at its home pose; the hand moves and,
-in pick-place mode, the Orca wrist follows the glove's hand tilt (``sink.update_hand_pitch``).
+By default no wrist positions are produced, so the Nero arm stays at its home pose; the hand
+moves and, in pick-place mode, the Orca wrist follows the glove's hand tilt
+(``sink.update_hand_pitch``). With ``arm=True`` the glove's estimated wrist position drives the
+arm IK like the depth camera did (``sink.update_hand_pose``).
 """
 
 from __future__ import annotations
@@ -18,8 +20,8 @@ from collections.abc import Callable
 
 from orca_teleop.pipeline import _SHUTDOWN, RobotSink, _install_stop_handler
 
-from rokoko.retarget import RokokoHandRetargeter, hand_pitch
-from rokoko.stream import DEFAULT_PORT, RokokoReceiver, frame_to_positions
+from rokoko.retarget import RokokoHandRetargeter, hand_pitch, hand_rotation_matrix, wrist_camera_xyz
+from rokoko.stream import DEFAULT_PORT, RokokoReceiver, frame_to_positions, frame_to_rotations
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,15 @@ def rokoko_worker(
     stop_event: threading.Event,
     max_hz: float = 30.0,
     pitch_hook: Callable[[float], None] | None = None,
+    pose_hook: Callable[[object, float | None, object], None] | None = None,
 ) -> None:
     """Poll the newest glove frame, retarget, and enqueue the hand command at ``max_hz``.
 
     ``pitch_hook`` (the sink's ``update_hand_pitch``) receives the hand tilt each frame so the
-    Orca wrist can follow it in pick-place mode; the arm itself gets no position input.
+    Orca wrist can follow it in pick-place mode while the arm gets no position input.
+    ``pose_hook`` (the sink's ``update_hand_pose``) instead receives the glove's estimated
+    wrist position in the camera convention, the tilt and the hand's 3x3 world orientation
+    (IMU-based, for the 6-DoF arm mode), so the arm follows it too.
     """
     period = 1.0 / max_hz
     n_cmd = 0
@@ -50,7 +56,16 @@ def rokoko_worker(
             frame = receiver.latest()
             pos = frame_to_positions(frame) if frame is not None else None
             if pos is not None:
-                if pitch_hook is not None:
+                if pose_hook is not None:
+                    xyz = wrist_camera_xyz(pos)
+                    if xyz is not None:
+                        rots = frame_to_rotations(frame)
+                        rot = hand_rotation_matrix(rots) if rots is not None else None
+                        try:
+                            pose_hook(xyz, hand_pitch(pos), rot)
+                        except Exception:
+                            logger.debug("pose_hook failed", exc_info=True)
+                elif pitch_hook is not None:
                     pitch = hand_pitch(pos)
                     if pitch is not None:
                         try:
@@ -91,7 +106,15 @@ def run_rokoko(
     max_hz: float = 30.0,
     smoothing: float = 0.8,
     max_step_deg: float | None = 30.0,
+    calibrate: bool = False,
+    calib_file: str | None = None,
+    arm: bool = False,
+    arm_scale: float | None = None,
 ) -> None:
+    """``calibrate`` runs the guided 3-pose calibration at start and saves it to ``calib_file``
+    (default ``rokoko/calib/hand.json``), which later runs load automatically. ``arm`` feeds
+    the glove's estimated wrist position to the arm IK (``sink.update_hand_pose``) instead of
+    only the hand tilt; ``arm_scale`` overrides m of EE per m of hand (default 1.5)."""
     receiver = RokokoReceiver(port)  # bind first so a port clash fails before the slow connect
     actions_q: "queue.Queue[object]" = queue.Queue(maxsize=QUEUE_MAXSIZE)
     stop_event = threading.Event()
@@ -99,18 +122,27 @@ def run_rokoko(
     logger.info("Quit: Ctrl+C in this terminal, or close MuJoCo.")
 
     sink.connect()
+    if arm and arm_scale is not None:
+        sink.set_arm_input_scale(arm_scale)
+        logger.info("Glove arm input scale: %.2f m EE per m hand", arm_scale)
     if model_path is None:
         model_path = getattr(sink, "retarget_model_path", None)
         if model_path:
             logger.info("Using sink-provided retargeter model: %s", model_path)
+    kwargs = {"calibrate": calibrate}
+    if calib_file:
+        kwargs["calib_file"] = calib_file
     retargeter = RokokoHandRetargeter(
-        model_path, urdf_path, smoothing=smoothing, max_step_deg=max_step_deg
+        model_path, urdf_path, smoothing=smoothing, max_step_deg=max_step_deg, **kwargs
     )
 
     thread = threading.Thread(
         target=rokoko_worker,
         args=(receiver, retargeter, actions_q, stop_event, max_hz),
-        kwargs={"pitch_hook": getattr(sink, "update_hand_pitch", None)},
+        kwargs={
+            "pitch_hook": getattr(sink, "update_hand_pitch", None),
+            "pose_hook": getattr(sink, "update_hand_pose", None) if arm else None,
+        },
         name="rokoko",
         daemon=True,
     )

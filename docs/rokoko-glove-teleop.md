@@ -1,8 +1,9 @@
 # Rokoko Smartgloves → Orca hand (sim)
 
-2026-11-16. Rokoko Smartgloves(오른손) 실시간 스트림을 리눅스 노트북에서 받아 Orca 핸드 관절
-목표값으로 바꾸고 MuJoCo에서 확인한 기록. **실제 로봇 제어 경로(`teleop.py`,
-`combined_sink.py`, `record_pick.sh`)에는 아직 연결하지 않았다.**
+2026-11-16/17. Rokoko Smartgloves(오른손) 실시간 스트림을 리눅스 노트북에서 받아 Orca 핸드 관절
+목표값으로 바꾸고 MuJoCo에서 확인한 뒤, `teleop.py --source rokoko` / `record_dataset.py --source rokoko`
+/ `SOURCE=rokoko ./record_pick.sh`로 기존 경로(sink는 동일)에 연결한 기록. 11/17 실물 Orca 핸드로 확인:
+시뮬과 실물이 같이 움직인다.
 
 ## 구성
 
@@ -43,7 +44,14 @@ $PY teleop.py --source rokoko --nero-output sim --orca-output sim   # 기존 텔
 `WristPositionMirror.update_hand_pitch()`가 고정 cue(`HOLD_CUE`) + 피치로 `WristPosition`을 만들고,
 기존 pick 모드 로직(첫 샘플을 기준각으로 잡고 상대 기울기를 `PICK_WRIST_RANGE` −40~25°로)이 그대로 돈다.
 cue가 고정이라 팔 오프셋은 0 — sink 경로 테스트에서 손목 0→+25→−15°로 따라가는 동안 팔 명령 변화 0°.
-pick 모드가 아니면 손목은 0° 그대로. 팔 위치 입력은 VIVE Ultimate Tracker로 할 계획이라 글러브 위치는 쓰지 않는다.
+pick 모드가 아니면 손목은 0° 그대로. 팔 위치 입력은 VIVE Ultimate Tracker로 할 계획이지만, 그 전 테스트용으로
+**`--rokoko-arm`**을 주면 글러브의 `rightHand` 위치(Studio의 전신 추정, m)를 웹캠 깊이 모드와 같은 경로로
+팔 IK에 넣는다 (`rokoko.retarget.wrist_camera_xyz` → `sink.update_hand_pose` → `WristPositionMirror.update_metric`
+→ 기존 metric 분기: 첫 샘플 기준 상대 이동 × `METRIC_SCALE` 1.5, pick 클램프·속도 제한 그대로).
+Rokoko 월드(오른쪽 +x, 위 +y, 앞 +z)를 카메라 규약(x 오른쪽, y 아래, z 멀어짐)으로 바꾸는 건 세 축 부호 반전이라,
+웹캠 때처럼 `--mirror-lateral --pick-place`로 쓰면 내 오른쪽 → 로봇 오른쪽, 앞 → 앞, 위 → 위. Studio 캘리브레이션
+때 **로봇과 같은 방향을 보고** 서야 축이 맞는다 (글러브만으로는 몸 방향을 모른다). 녹화 샘플을 sink 경로에
+재생해 오른쪽 39 cm 이동 → EE Y +24 cm(클램프 25 cm 안), 위로 17 cm → Z 상한 +11 cm에서 멈춤을 확인했다.
 `--nero-output`/`--orca-output`을 `real`로 주면 실제 로봇에도 그대로 나가므로(sink가 같다),
 실제 핸드의 벌림 방향을 확인하기 전까지는 `sim`으로만 쓴다.
 
@@ -74,9 +82,30 @@ pick 모드가 아니면 손목은 0° 그대로. 팔 위치 입력은 VIVE Ulti
 5. **후처리**: EMA(`smoothing`) + 프레임당 스텝 제한(`max_step_deg`) + 시뮬 관절 범위 clip.
    `orca_teleop` 설정은 `lp_alpha: 1.0`(스무딩 없음)이라 한 프레임에 30° 넘게 튀는 경우가 있었다.
 
-`ABD_CALIB`·`THUMB_CALIB`는 **한 사람(2026-11-16 녹화) 기준 상수**다. 다른 사람이 끼거나 장갑을
-재보정하면 `rokoko/samples/abd_test.npz`, `thumb_test.npz`와 같은 동작을 다시 녹화해 값을 갱신한다
-(시작 시 벌림/붙임·엄지 동작 2초씩으로 자동 보정하는 것은 다음 단계).
+### 사용자별 보정 (`--calibrate` / `--rokoko-calibrate`)
+
+`ABD_CALIB`·`THUMB_CALIB`의 장갑 쪽 값은 **한 사람(2026-11-16 녹화) 기준**이라 다른 손에서는 "손가락을
+다 붙였는데 로봇은 벌어져 있음" 같은 차이가 난다. 그래서 시작 시 안내에 따라 3자세를 취하면 장갑 쪽 값만
+그 사람 것으로 바꾸는 `GuidedCalibrator`를 넣었다 (Orca 쪽 목표각은 고정: 벌림 −25/−10/15/28, 붙임
+20/8/−8/−25, 엄지 주먹 cmc 33·abd 45·mcp/dip 90). **손가락 굽힘(mcp/pip)도 같이 보정한다**: 리타게터
+출력이 손가락마다 범위가 달라(주먹에서 검지 mcp 69·pip 89, 중지 83·82, 약지 63·107, 새끼 56·107) 실물
+검지가 끝까지 안 접혔다. 펴기 자세의 출력을 0°, 주먹 자세의 출력을 mcp 90·pip 100으로 보내는 손가락별
+선형 보정(`HandCalibration.flex`)을 리타게터 출력 뒤에 건다. 차이가 20° 미만인 관절은 그대로 둔다.
+
+```bash
+$PY rokoko/play.py --live --calibrate                       # 단독 뷰어에서
+$PY teleop.py --source rokoko --rokoko-calibrate ...        # 텔레옵에서
+```
+
+순서: 손 펴고 1초(크기 보정, 기존) → **① 손 펴고 손가락 전부 붙이기 ② 손가락·엄지 최대로 벌리기 ③ 주먹
+(엄지도 접기)**. 자세마다 4초 이동(매초 카운트다운) + 2초 측정, 터미널에 `[calib n/3] ...` 안내가 뜬다. 끝나면 중앙값으로
+표를 만들어 `rokoko/calib/hand.json`에 저장하고(gitignore), 이후 `play.py`·`teleop.py`·`record_dataset.py`
+모두 그 파일을 자동으로 읽는다 (시작 로그 `glove calibration: file ...`). 두 자세의 장갑 값 차이가 2.5°
+미만이거나 순서가 어긋난 관절은 기본 상수를 유지하고 로그에 `기본값 유지:`로 알린다 — 엄지 고도각
+(`thumb_abd`)은 자세 간 차이가 3° 안팎이라 자주 기본값으로 남는다. 녹화 샘플을 이어 붙인 테스트에서
+보정 후 벌림/붙임/주먹이 목표각에 정확히 닿았다 (기본 상수로는 약지 붙임이 −17°로 과했고 검지 주먹이
+69/89°에서 멈췄음). 1번 자세에서 손가락을 **곧게** 펴야 그 자세가 0°가 된다.
+파일을 지우면 기본 상수로 돌아간다.
 
 ## 시뮬 모델 수정
 
@@ -86,8 +115,9 @@ pick 모드가 아니면 손목은 0° 그대로. 팔 위치 입력은 VIVE Ulti
 데이터셋 action 기준과 일치하게 했다. 웹캠 텔레옵의 시뮬 표시도 같이 바로잡힌다.
 엄지 관절은 두 모델 방향이 같아 그대로.
 
-**실제 Orca 핸드의 벌림 방향은 아직 확인하지 않았다.** 하드웨어로 돌리기 전에 `index_abd +20`을
-보내 손끝이 새끼 쪽으로 가는지 확인할 것.
+실물 핸드의 관절 방향은 `orca_joint_test.py`로 관절 하나씩 ±각도를 보내 눈으로 확인한다
+(`--joint index_abd --deg 20`: `+`에서 검지 끝이 새끼 쪽이면 정상). 반대면 `config/orcahand_right/config.yaml`의
+해당 모터 부호를 뒤집고 `calibration.yaml`의 그 모터 두 값 순서를 바꾼다 (재캘리브레이션 불필요).
 
 ## 측정값
 
@@ -113,9 +143,53 @@ SOURCE=rokoko NERO=sim ORCA=sim ./record_pick.sh         # pick-place 설정 + �
 
 `--local`/`--depth`/`--teleop-*`는 글러브에서는 쓰지 않는다. action의 손 17개는 글러브 값, 팔 7개는 홈.
 
+## 실물 핸드
+
+```bash
+$PY orca_joint_test.py --joint index_abd --deg 20          # 관절 방향 확인 (토크 켜고 ±20°, 끝나면 0°·토크 끔)
+$PY teleop.py --source rokoko --pick-place --nero-output sim --orca-output real \
+    --model-path config/orcahand_right/config.yaml          # 글러브 → 실물 손, 팔은 시뮬
+$PY teleop.py --source rokoko --pick-place --mirror-lateral --rokoko-arm \
+    --nero-output sim --orca-output sim                     # 팔도 글러브 위치로 (시뮬에서 먼저)
+SOURCE=rokoko NERO=real ORCA=real SPEED=10 ./record_pick.sh  # 팔까지 (can0 up + External CAN Push 먼저)
+```
+
+11/17: 실물 손이 시뮬과 같게 따라옴. 사람 손과의 차이는 사용자별 보정으로 처리.
+
+**손 기울기**: pick 모드는 J2+J4+J7을 `PICK_PITCH`로 묶는다. 원래 135°(손가락 약 45° 아래, 테이블 위에서
+내려다보며 집는 자세)였는데 글러브로 앞의 물건을 잡기엔 너무 숙여져 있어 11/17에 **기본값을 90°(플랜지
+J7→Orca 손목이 정확히 수평, 손이 앞을 향함)로 바꿨다**. `--pick-pitch-deg`로 바꿀 수 있고(`NeroArmIK(pick_pitch_deg=…)`,
+`record_dataset.py`에도 같은 옵션) 135를 주면 예전 자세다. 홈에서 J4 107°, J7 −44°.
+팔 작업공간(클램프·반경)은 그대로라 EE 이동 범위는 같고, 글러브 손목 굽힘도 그대로 더해진다.
+pick 모드 작업공간은 앞뒤 ±10 cm(반경 0.40~0.675 m 제한으로 넓혀도 ±12), 좌우 ±25, 위아래 −9~+11 cm로 작다.
+범위를 보려면 `--pick-place` 없이(±25/30/25 cm, 6자유도) 돌리고, `--rokoko-arm-scale`(기본 1.5)로 배율을 키운다.
+
+### 6자유도 모드 (`--arm-6dof`)
+
+pick 모드는 손 방향을 고정한 3자유도라 사람 팔처럼 보이지 않는다. `--arm-6dof`는 `--pick-place` 없이 쓰는 free
+모드의 확장으로, Nero 7관절이 손의 **위치와 방향 변화**를 같이 따라간다 (`NeroArmIK(track_orientation=True)`).
+
+```bash
+$PY teleop.py --source rokoko --arm-6dof --mirror-lateral --rokoko-arm --nero-output sim --orca-output sim
+```
+
+- 방향 입력은 Rokoko `rightHand`의 전역 회전(IMU 기반, 위치 추정과 달리 믿을 만함; 샘플에서 손 로컬 −y가
+  손목→중지 MCP 방향과 내적 −1.00). `rokoko.retarget.hand_rotation_matrix` → `sink.update_hand_pose(xyz, pitch, rot)`
+  → `WristPosition.hand_rot`. 트래커가 오면 위치(그리고 원하면 방향)만 갈아끼운다.
+- 첫 샘플을 기준으로 한 **상대 회전**만 쓴다: ΔR = R·R₀ᵀ(Rokoko 좌표)를 카메라→로봇 행렬 T로 켤레(T ΔR Tᵀ)해
+  기준 시점의 EE 방향에 곱한다. 절대 방향을 안 쓰므로 글러브 본의 축 정의·왼손 좌표계 문제가 없다.
+  회전벡터에 One Euro 필터, 180°/s 속도 제한.
+- IK: 6×7 자코비안(위치 + `ORIENT_WEIGHT` 0.2 m/rad × 회전) 감쇠 최소제곱, 여유 자유도는 홈 자세(플랜지 수평,
+  pick 홈과 같음)로. 정적 목표에 위치 0.0 cm·회전 0.2° 수렴(IK 해 기준). 작업공간·속도는 free 모드(±25/30/25 cm, 0.8 m/s).
+- 시뮬에서 보이는 지연(녹화 샘플 재생: 방향 중앙값 18°, 위치 4.5 cm)은 **시뮬 Nero 서보의 토크 제한**이다. 필터+속도제한
+  1°, IK 0.1°, 서보 19°로 분해됐고, kp를 400→4000으로 올려도 18°라 게인이 아니라 `forcerange`(URDF effort, J2 24 Nm 등)에
+  막힌다. 정지 목표에서는 3°/2 cm(중력 처짐 J2 1.7°, Orca 손목 액추에이터 kp 2라 손목 7° 처짐). 실물은 Nero 자체 제어기와
+  `--nero-speed`가 결정한다.
+- 실물에서는 방향까지 따라가면 자기 충돌·관절 한계 위험이 있으므로 시뮬에서 충분히 본 뒤 `--nero-speed 10`으로.
+  `record_dataset.py`에는 아직 안 넣었다.
+
 ## 다음 단계
 
 - 팔 손목 위치: VIVE Ultimate Tracker (글러브의 `rightHand` 위치는 슈트 없이 추정값이라 쓰지 않음).
-- 실제 핸드 벌림 방향 확인 후 하드웨어 연결.
 - 팔: Rokoko `rightHand` 위치(전신 좌표계, m)를 `NeroArmIK`의 손목 목표로 쓰는 것도 가능하지만
   글러브만으로는 위치 드리프트가 있어 Quest 3/트래커 계획과 비교해 결정.

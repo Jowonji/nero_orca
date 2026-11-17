@@ -43,12 +43,12 @@ POS_CLAMP = np.array([0.25, 0.30, 0.25], dtype=np.float64)
 MAX_EE_SPEED = 0.8  # m/s
 
 # Pick-and-place mode (--pick-place): J3/J5/J6 locked at 0 so J2, J4, J7 share one axis,
-# and J7 = PICK_PITCH - J2 - J4 keeps the hand at one tilt (fingers ~45 deg down). J1, J2, J4
+# and J7 = PICK_PITCH - J2 - J4 keeps the hand at one tilt (flange level by default). J1, J2, J4
 # set the hand position: a 3-DoF action that is easier to learn. Fixed tilt shrinks the reach,
 # so the home sits mid-workspace in front of the robot instead of at REST_QPOS. (A flat palm,
 # by the arm or by the Orca wrist, and a +30 deg Orca wrist were tried and not kept.)
 PICK_LOCKED = (2, 4, 5)  # J3, J5, J6 indices
-PICK_PITCH = math.radians(135.0)
+PICK_PITCH = math.radians(90.0)  # flange (J7 -> Orca wrist) level; 135 was fingers ~45 deg down
 PICK_ORCA_WRIST_DEG = 0.0  # Orca wrist at the anchor; the teleop adds the hand's tilt to it
 # Orca wrist teleop: the operator's hand tilt (wrist->middle-MCP pitch in the camera frame),
 # relative to the moment the hand was (re)acquired, moves the Orca wrist; positive = fingers
@@ -95,6 +95,12 @@ FILTER_D_CUTOFF = 1.0
 METRIC_FILTER_MIN_CUTOFF = np.array([1.2, 1.2, 0.8], dtype=np.float64)  # Hz
 METRIC_FILTER_BETA = np.array([15.0, 15.0, 10.0], dtype=np.float64)
 
+# 6-DoF mode (track_orientation): the EE follows the hand's orientation change as well.
+ORIENT_WEIGHT = 0.2  # m per rad: how hard orientation error pulls vs position error in the IK
+ORIENT_MAX_SPEED = math.radians(180.0)  # rad/s of EE rotation
+ORIENT_FILTER_MIN_CUTOFF = np.array([1.5, 1.5, 1.5], dtype=np.float64)  # Hz, rotvec channels
+ORIENT_FILTER_BETA = np.array([10.0, 10.0, 10.0], dtype=np.float64)
+
 DAMPING = 1.5e-3
 STEP_CLIP = 0.12
 IK_ITERS = 10
@@ -137,6 +143,7 @@ class WristPosition:
     stamp: float = field(default_factory=time.perf_counter)
     palm_xyz: np.ndarray | None = None  # (3,) camera frame, meters
     hand_pitch: float | None = None  # rad, wrist->middle MCP below the camera's horizontal
+    hand_rot: np.ndarray | None = None  # (3, 3) hand orientation, camera convention; used relatively
 
     @property
     def metric(self) -> bool:
@@ -218,6 +225,33 @@ class WristPositionMirror:
                 wrist_image=HOLD_CUE.copy(), stamp=time.perf_counter(), hand_pitch=float(pitch)
             )
 
+    def update_metric(
+        self,
+        palm_xyz: np.ndarray,
+        hand_pitch: float | None = None,
+        hand_rot: np.ndarray | None = None,
+    ) -> None:
+        """Metric wrist position (m) in the camera convention (x right, y down, z away), e.g.
+        a glove's estimated wrist converted to that frame; goes down the RGB-D path.
+        ``hand_rot`` (3x3, same convention) lets the 6-DoF arm mode follow the orientation."""
+        xyz = np.asarray(palm_xyz, dtype=np.float64).reshape(-1)
+        if xyz.shape[0] != 3 or not np.all(np.isfinite(xyz)):
+            return
+        pitch = None if hand_pitch is None or not math.isfinite(hand_pitch) else float(hand_pitch)
+        rot = None
+        if hand_rot is not None:
+            rot = np.asarray(hand_rot, dtype=np.float64)
+            if rot.shape != (3, 3) or not np.all(np.isfinite(rot)):
+                rot = None
+        with self._lock:
+            self._latest = WristPosition(
+                wrist_image=HOLD_CUE.copy(),
+                stamp=time.perf_counter(),
+                palm_xyz=xyz.copy(),
+                hand_pitch=pitch,
+                hand_rot=rot,
+            )
+
     def snapshot(self) -> WristPosition | None:
         with self._lock:
             return self._latest
@@ -232,14 +266,35 @@ HOLD_CUE = np.array([0.5, 0.5, 0.12], dtype=np.float64)
 
 
 class NeroArmIK:
-    def __init__(self, model, mirror_lateral: bool = False, pick_place: bool = False) -> None:
+    def __init__(
+        self,
+        model,
+        mirror_lateral: bool = False,
+        pick_place: bool = False,
+        pick_pitch_deg: float | None = None,
+        track_orientation: bool = False,
+    ) -> None:
         """``mirror_lateral``: the camera faces the operator (a mirror view), so the
         operator's right is the image's left; flip robot Y so right still means right.
-        ``pick_place``: locked-wrist 3-DoF mode around ``PICK_HOME_EE`` (see PICK_*)."""
+        ``pick_place``: locked-wrist 3-DoF mode around ``PICK_HOME_EE`` (see PICK_*).
+        ``pick_pitch_deg``: J2+J4+J7 held in pick mode (default PICK_PITCH 90 = flange
+        level, hand pointing forward; 135 = fingers ~45 deg down for top-down table grasps).
+        ``track_orientation``: 6-DoF mode (not with pick_place): all seven joints follow the
+        hand's position *and* orientation change (``WristPosition.hand_rot``), starting from
+        the level-flange home; the spare DoF settles toward that home (elbow down)."""
         import mujoco
 
+        if pick_place and track_orientation:
+            raise ValueError("track_orientation is the free 6-DoF mode; not with pick_place")
         self._model = model
+        self._pick_pitch = PICK_PITCH if pick_pitch_deg is None else math.radians(pick_pitch_deg)
         self._lateral_sign = -1.0 if mirror_lateral else 1.0
+        self._orient = bool(track_orientation)
+        # Camera convention (x right, y down, z away) -> robot (X back, Y, Z up); det may be -1
+        # (the mirror), which is fine for conjugating rotation deltas.
+        self._cam_to_robot = np.array(
+            [[0.0, 0.0, 1.0], [self._lateral_sign, 0.0, 0.0], [0.0, -1.0, 0.0]], dtype=np.float64
+        )
         self._ee = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, EE_BODY)
         if self._ee < 0:
             raise RuntimeError(f"IK end-effector body missing: {EE_BODY}")
@@ -253,7 +308,10 @@ class NeroArmIK:
         self._clamp_lo = PICK_CLAMP_LO if self._pick else -POS_CLAMP
         self._clamp_hi = PICK_CLAMP_HI if self._pick else POS_CLAMP
         self._max_ee_speed = PICK_MAX_EE_SPEED if self._pick else MAX_EE_SPEED
-        self._rest_q = self._pick_home_q() if self._pick else np.array(REST_QPOS, dtype=np.float64)
+        if self._pick or self._orient:
+            self._rest_q = self._pick_home_q()  # level flange in front of the robot
+        else:
+            self._rest_q = np.array(REST_QPOS, dtype=np.float64)
         self._q = self._rest_q.copy()
         self._image_filter = OneEuroFilter(FILTER_MIN_CUTOFF, FILTER_BETA, FILTER_D_CUTOFF)
         self._metric_filter = OneEuroFilter(
@@ -269,6 +327,12 @@ class NeroArmIK:
         self._pitch_filter = OneEuroFilter(np.array([1.0]), np.array([4.0]), FILTER_D_CUTOFF)
         self._pitch_zero: float | None = None
         self._wrist_teleop = 0.0  # deg, added to PICK_ORCA_WRIST_DEG
+        self.metric_scale = METRIC_SCALE  # m of EE per m of metric input; inputs may override
+        self._rest_rot = np.eye(3)
+        self._anchor_rot = np.eye(3)
+        self._rot_target = np.eye(3)
+        self._rot_origin: np.ndarray | None = None
+        self._rot_filter = OneEuroFilter(ORIENT_FILTER_MIN_CUTOFF, ORIENT_FILTER_BETA, FILTER_D_CUTOFF)
 
     @property
     def home_q(self) -> np.ndarray:
@@ -308,6 +372,11 @@ class NeroArmIK:
         self._rest_ee = np.array(data.xpos[self._ee], dtype=np.float64)
         self._anchor_ee = self._rest_ee.copy()
         self._target = self._rest_ee.copy()
+        self._rest_rot = np.array(data.xmat[self._ee], dtype=np.float64).reshape(3, 3)
+        self._anchor_rot = self._rest_rot.copy()
+        self._rot_target = self._rest_rot.copy()
+        self._rot_origin = None
+        self._rot_filter.reset()
         self._q = self._rest_q.copy()
         self._origin = None
         self._image_filter.reset()
@@ -334,7 +403,7 @@ class NeroArmIK:
         assert self._origin is not None
         if self._metric:
             d = cue - self._origin
-            return METRIC_SCALE * np.array(
+            return self.metric_scale * np.array(
                 [d[2], self._lateral_sign * d[0], -d[1]], dtype=np.float64
             )
         dx = (cue[0] - self._origin[0]) * IMAGE_ASPECT
@@ -356,6 +425,8 @@ class NeroArmIK:
             if self._origin is not None:
                 self._origin = None
                 self._anchor_ee = self._target.copy()
+                self._anchor_rot = self._rot_target.copy()
+                self._rot_origin = None
             if stale:
                 return self._q.copy()
 
@@ -364,6 +435,9 @@ class NeroArmIK:
             self._filter = self._metric_filter if self._metric else self._image_filter
             self._origin = wrist.cue.copy()
             self._filter.reset(wrist.cue)
+            if self._orient and wrist.hand_rot is not None:
+                self._rot_origin = wrist.hand_rot.copy()
+                self._rot_filter.reset(np.zeros(3))
             if wrist.hand_pitch is not None:
                 # Keep the current wrist angle: re-acquiring the hand must not jump it.
                 self._pitch_zero = wrist.hand_pitch - math.radians(self._wrist_teleop / PICK_WRIST_SCALE)
@@ -372,6 +446,8 @@ class NeroArmIK:
 
         cue = self._filter(wrist.cue, dt)
         self._update_wrist(wrist.hand_pitch, dt)
+        if self._orient:
+            self._update_orientation(wrist.hand_rot, dt)
         offset = self._anchor_ee + self._offset(cue) - self._rest_ee
         lo = self._clamp_lo.copy()
         if self._pick:  # a wrist tilted down hangs the hand lower: raise the floor to match
@@ -396,6 +472,33 @@ class NeroArmIK:
         self._q = q
         return self._q.copy()
 
+    def _update_orientation(self, hand_rot: np.ndarray | None, dt: float) -> None:
+        """Rotate the EE goal by the hand's rotation since the anchor (filtered, rate-limited)."""
+        from scipy.spatial.transform import Rotation
+
+        if hand_rot is None:
+            return
+        if self._rot_origin is None:  # orientation arrived after the position anchor
+            self._rot_origin = hand_rot.copy()
+            self._anchor_rot = self._rot_target.copy()
+            self._rot_filter.reset(np.zeros(3))
+            return
+        delta_cam = hand_rot @ self._rot_origin.T
+        rotvec = Rotation.from_matrix(delta_cam).as_rotvec()
+        rotvec = self._rot_filter(rotvec, dt)
+        delta_robot = self._cam_to_robot @ Rotation.from_rotvec(rotvec).as_matrix() @ self._cam_to_robot.T
+        goal = delta_robot @ self._anchor_rot
+        step = Rotation.from_matrix(goal @ self._rot_target.T).as_rotvec()
+        angle = float(np.linalg.norm(step))
+        max_step = ORIENT_MAX_SPEED * dt
+        if angle > max_step:
+            step *= max_step / angle if angle > 0.0 else 0.0
+        self._rot_target = Rotation.from_rotvec(step).as_matrix() @ self._rot_target
+
+    @property
+    def ee_rotation_target(self) -> np.ndarray:
+        return self._rot_target.copy()
+
     def _limit_joint_step(self, q: np.ndarray, dt: float) -> np.ndarray:
         """Scale the whole joint step down uniformly (keeps J7 = pitch - J2 - J4 exact)."""
         step = q - self._q
@@ -407,6 +510,8 @@ class NeroArmIK:
 
         if self._pick:
             return self._ik_pick(data, target)
+        if self._orient:
+            return self._ik_6dof(data, target)
         q_save = np.array(data.qpos[:7], dtype=np.float64)
         q = self._q.copy()
         jacp = np.zeros((3, self._model.nv))
@@ -432,6 +537,41 @@ class NeroArmIK:
             data.qpos[:7] = q_save
             mujoco.mj_forward(self._model, data)
 
+    def _ik_6dof(self, data, target: np.ndarray) -> np.ndarray:
+        """Position + orientation (``_rot_target``) over all seven joints, damped least squares
+        with the spare DoF pulled toward the home pose."""
+        import mujoco
+        from scipy.spatial.transform import Rotation
+
+        q_save = np.array(data.qpos[:7], dtype=np.float64)
+        q = self._q.copy()
+        jacp = np.zeros((3, self._model.nv))
+        jacr = np.zeros((3, self._model.nv))
+        eye7 = np.eye(7)
+        try:
+            for _ in range(IK_ITERS):
+                data.qpos[:7] = q
+                mujoco.mj_forward(self._model, data)
+                pos_err = target - np.asarray(data.xpos[self._ee], dtype=np.float64)
+                cur = np.asarray(data.xmat[self._ee], dtype=np.float64).reshape(3, 3)
+                rot_err = Rotation.from_matrix(self._rot_target @ cur.T).as_rotvec()
+                mujoco.mj_jacBody(self._model, data, jacp, jacr, self._ee)
+                j = np.vstack([jacp[:, :7], ORIENT_WEIGHT * jacr[:, :7]])
+                err = np.concatenate([pos_err, ORIENT_WEIGHT * rot_err])
+                j_pinv = j.T @ np.linalg.inv(j @ j.T + DAMPING * np.eye(6))
+                dq = j_pinv @ err
+                dq += (eye7 - j_pinv @ j) @ (NULLSPACE_GAIN * (self._rest_q - q))
+                dq = np.clip(dq, -STEP_CLIP, STEP_CLIP)
+                q = np.clip(q + dq, self._lo, self._hi)
+                if float(np.linalg.norm(pos_err)) < 1e-4 and float(np.linalg.norm(rot_err)) < 1e-3:
+                    break
+            return q
+        except np.linalg.LinAlgError:
+            return self._q.copy()
+        finally:
+            data.qpos[:7] = q_save
+            mujoco.mj_forward(self._model, data)
+
     def _ik_pick(self, data, target: np.ndarray) -> np.ndarray:
         """Position IK over J1, J2, J4 with J3/J5/J6 at 0 and J7 holding the hand tilt."""
         import mujoco
@@ -444,7 +584,7 @@ class NeroArmIK:
         jacp = np.zeros((3, self._model.nv))
         try:
             for _ in range(IK_ITERS):
-                q[6] = PICK_PITCH - q[1] - q[3]
+                q[6] = self._pick_pitch - q[1] - q[3]
                 data.qpos[:7] = q
                 mujoco.mj_forward(self._model, data)
                 err = target - np.asarray(data.xpos[self._ee], dtype=np.float64)
@@ -459,11 +599,11 @@ class NeroArmIK:
                 q[act] = np.clip(q[act] + np.clip(dq, -STEP_CLIP, STEP_CLIP), self._lo[act], self._hi[act])
                 q[3] = max(q[3], PICK_J4_MIN)
                 # J7 = PICK_PITCH - J2 - J4 must stay inside its limits, so bound J2 + J4.
-                q[3] = np.clip(q[3], PICK_PITCH - self._hi[6] - q[1], PICK_PITCH - self._lo[6] - q[1])
+                q[3] = np.clip(q[3], self._pick_pitch - self._hi[6] - q[1], self._pick_pitch - self._lo[6] - q[1])
                 if q[3] < PICK_J4_MIN:  # only J2 can restore the bound without flipping
                     q[3] = PICK_J4_MIN
-                    q[1] = np.clip(PICK_PITCH - self._hi[6] - q[3], self._lo[1], self._hi[1])
-            q[6] = np.clip(PICK_PITCH - q[1] - q[3], self._lo[6], self._hi[6])
+                    q[1] = np.clip(self._pick_pitch - self._hi[6] - q[3], self._lo[1], self._hi[1])
+            q[6] = np.clip(self._pick_pitch - q[1] - q[3], self._lo[6], self._hi[6])
             return q
         except np.linalg.LinAlgError:
             return self._q.copy()

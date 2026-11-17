@@ -19,11 +19,22 @@ solver occasionally snaps a joint limit-to-limit in one frame, so this wrapper a
     # q: OrcaJointPositions (degrees) or None during the calibration window
 
 ``joint_array(q)`` gives the plain float array in ``joint_ids`` order for the sim.
+
+Finger abduction and the thumb come from the glove geometry with per-operator tables
+(``HandCalibration``): ``calibrate=True`` runs ``GuidedCalibrator`` (three prompted poses after
+the scale window) and saves to ``calib_file`` (default rokoko/calib/hand.json), which later
+instances load automatically; without a file the built-in constants are used.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import math
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -32,6 +43,8 @@ from orca_teleop.retargeting.retargeter import Retargeter, TargetPose
 from orca_teleop.retargeting.utils import get_normalized_local_manohand_joint_pos
 
 from rokoko.stream import frame_to_positions
+
+logger = logging.getLogger(__name__)
 
 # Rokoko (left-handed) → right-handed: negate z.
 HANDEDNESS_FLIP = np.array([1.0, 1.0, -1.0])
@@ -86,28 +99,203 @@ THUMB_CALIB: dict[str, list[tuple[float, float]]] = {
 }
 
 
+# Orca targets the calibrated glove extremes map to (deg); fixed across operators, only the
+# glove-side values in ABD_CALIB / THUMB_CALIB change with the hand wearing the glove.
+ABD_TARGET_DEG: dict[str, tuple[float, float]] = {  # finger: (spread, together)
+    finger: (spread[1], together[1]) for finger, (spread, together) in ABD_CALIB.items()
+}
+THUMB_TARGET_DEG: dict[str, tuple[float, ...]] = {  # joint: outputs in THUMB_CALIB order
+    joint: tuple(y for _, y in table) for joint, table in THUMB_CALIB.items()
+}
+# Minimum glove-side separation (deg) between two calibration poses for the measurement to be
+# trusted; below it the default table for that joint is kept.
+MIN_CALIB_SEPARATION_DEG = 2.5
+# Thumb flexion spans ~60 deg open→fist; a smaller spread means the thumb was not curled in the
+# fist pose (seen 11/17: dip 4→12 would have mapped 8 deg of glove to 90 deg of Orca).
+MIN_THUMB_FLEX_SEPARATION_DEG = 25.0
+
+# Finger flexion (mcp/pip from the IK retargeter) is also rescaled per operator: the open pose
+# maps to 0 and the fist to these targets. The retargeter's range differs per finger on glove
+# data (index mcp tops out ~70 deg while the middle reaches ~85, so the real index never closed).
+FLEX_JOINTS = tuple(f"{f}_{j}" for f in ("index", "middle", "ring", "pinky") for j in ("mcp", "pip"))
+FLEX_TARGET_DEG = {"mcp": 90.0, "pip": 100.0}
+MIN_FLEX_SEPARATION_DEG = 20.0
+
+# Where RokokoHandRetargeter looks for the operator calibration by default (written by the
+# guided calibration, see GuidedCalibrator); absent → built-in constants.
+DEFAULT_CALIB_FILE = Path(__file__).resolve().parent / "calib" / "hand.json"
+
+
 def _interp(table: list[tuple[float, float]], x: float) -> float:
     xs, ys = zip(*table, strict=True)
     return float(np.interp(x, xs, ys))
 
 
-def thumb_from_canonical(canonical: np.ndarray) -> dict[str, float]:
-    """Orca thumb joints (deg) from canonical (21, 3) hand points; see ``THUMB_CALIB``."""
+def _angle(a: np.ndarray, b: np.ndarray) -> float:
+    c = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+    return math.degrees(math.acos(max(-1.0, min(1.0, c))))
+
+
+def raw_signals(canonical: np.ndarray) -> dict[str, float]:
+    """Glove-side signals (deg) the geometric maps are calibrated on.
+
+    ``index``..``pinky``: proximal phalanx angle in the palm plane (+ toward the index side).
+    ``thumb_mcp``/``thumb_dip``: flexion between phalanges. ``thumb_cmc``: proximal phalanx
+    in-plane angle (+ toward the index side). ``thumb_abd``: its elevation (+ palm side).
+    """
+    out: dict[str, float] = {}
+    for finger, base in _FINGER_BASE.items():
+        v = canonical[base + 1] - canonical[base]
+        out[finger] = math.degrees(math.atan2(v[0], v[1]))
     cmc, mcp, ip, tip = canonical[1], canonical[2], canonical[3], canonical[4]
-
-    def angle(a: np.ndarray, b: np.ndarray) -> float:
-        c = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
-        return math.degrees(math.acos(max(-1.0, min(1.0, c))))
-
     prox = mcp - cmc
-    return {
-        "thumb_mcp": _interp(THUMB_CALIB["thumb_mcp"], angle(prox, ip - mcp)),
-        "thumb_dip": _interp(THUMB_CALIB["thumb_dip"], angle(ip - mcp, tip - ip)),
-        "thumb_cmc": _interp(THUMB_CALIB["thumb_cmc"], math.degrees(math.atan2(prox[0], prox[1]))),
-        "thumb_abd": _interp(
-            THUMB_CALIB["thumb_abd"], math.degrees(math.atan2(prox[2], math.hypot(prox[0], prox[1])))
-        ),
-    }
+    out["thumb_mcp"] = _angle(prox, ip - mcp)
+    out["thumb_dip"] = _angle(ip - mcp, tip - ip)
+    out["thumb_cmc"] = math.degrees(math.atan2(prox[0], prox[1]))
+    out["thumb_abd"] = math.degrees(math.atan2(prox[2], math.hypot(prox[0], prox[1])))
+    return out
+
+
+@dataclass
+class HandCalibration:
+    """Glove→Orca tables for one operator (same layout as ``ABD_CALIB`` / ``THUMB_CALIB``)."""
+
+    abd: dict[str, tuple[tuple[float, float], tuple[float, float]]]
+    thumb: dict[str, list[tuple[float, float]]]
+    # mcp/pip joint: ((retargeter_open, 0), (retargeter_fist, target)); missing = pass-through
+    flex: dict[str, tuple[tuple[float, float], tuple[float, float]]] = field(default_factory=dict)
+    source: str = "built-in constants"
+
+    def save(self, path: str | Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "abd": {f: [list(a), list(b)] for f, (a, b) in self.abd.items()},
+            "thumb": {j: [list(p) for p in table] for j, table in self.thumb.items()},
+            "flex": {j: [list(a), list(b)] for j, (a, b) in self.flex.items()},
+            "source": self.source,
+        }
+        path.write_text(json.dumps(payload, indent=2) + "\n")
+
+    @classmethod
+    def load(cls, path: str | Path) -> "HandCalibration":
+        d = json.loads(Path(path).read_text())
+        return cls(
+            abd={f: (tuple(a), tuple(b)) for f, (a, b) in d["abd"].items()},
+            thumb={j: [tuple(p) for p in table] for j, table in d["thumb"].items()},
+            flex={j: (tuple(a), tuple(b)) for j, (a, b) in d.get("flex", {}).items()},
+            source=d.get("source", str(path)),
+        )
+
+    def apply_flex(self, joint: str, value: float) -> float:
+        """Rescale one retargeter mcp/pip output (deg) with the operator's open/fist range."""
+        table = self.flex.get(joint)
+        if table is None:
+            return value
+        (x0, y0), (x1, y1) = table
+        return y0 + (value - x0) * (y1 - y0) / (x1 - x0)
+
+    @classmethod
+    def from_poses(
+        cls,
+        together: dict[str, float],
+        spread: dict[str, float],
+        fist: dict[str, float],
+    ) -> tuple["HandCalibration", list[str]]:
+        """Build tables from the median ``raw_signals`` of the three guided poses.
+
+        Fixed Orca targets (``ABD_TARGET_DEG`` / ``THUMB_TARGET_DEG``) are attached to the
+        measured glove values. A joint whose poses are not separated/ordered as expected keeps
+        its default table; those are reported in the returned warnings. Pose dicts may also
+        carry the retargeter's flexion outputs as ``q:<joint>`` (see ``GuidedCalibrator``),
+        which give the per-finger ``flex`` rescaling.
+        """
+        warnings: list[str] = []
+        gap = MIN_CALIB_SEPARATION_DEG
+        flex: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {}
+        for joint in FLEX_JOINTS:
+            key = f"q:{joint}"
+            if key not in together or key not in fist:
+                continue
+            q_open, q_fist = together[key], fist[key]
+            if q_fist - q_open < MIN_FLEX_SEPARATION_DEG:
+                warnings.append(f"{joint}: open/fist too close ({q_open:.0f}/{q_fist:.0f})")
+                continue
+            flex[joint] = ((q_open, 0.0), (q_fist, FLEX_TARGET_DEG[joint.rsplit("_", 1)[1]]))
+
+        abd = dict(ABD_CALIB)
+        for finger, (t_spread, t_together) in ABD_TARGET_DEG.items():
+            a_sp, a_tg = spread[finger], together[finger]
+            if abs(a_sp - a_tg) < gap:
+                warnings.append(f"{finger}_abd: spread/together too close ({a_sp:.1f}/{a_tg:.1f})")
+                continue
+            abd[finger] = ((a_sp, t_spread), (a_tg, t_together))
+
+        thumb = dict(THUMB_CALIB)
+        # (glove values in table order, joint) — tables need strictly increasing glove values.
+        candidates = {
+            "thumb_mcp": (together["thumb_mcp"], fist["thumb_mcp"]),
+            "thumb_dip": (together["thumb_dip"], fist["thumb_dip"]),
+            "thumb_cmc": (fist["thumb_cmc"], together["thumb_cmc"], spread["thumb_cmc"]),
+            "thumb_abd": (spread["thumb_abd"], together["thumb_abd"], fist["thumb_abd"]),
+        }
+        for joint, xs in candidates.items():
+            need = MIN_THUMB_FLEX_SEPARATION_DEG if joint in ("thumb_mcp", "thumb_dip") else gap
+            if all(b - a >= need for a, b in zip(xs[:-1], xs[1:], strict=True)):
+                thumb[joint] = list(zip(xs, THUMB_TARGET_DEG[joint], strict=True))
+            else:
+                warnings.append(f"{joint}: poses not separated as expected {tuple(round(x, 1) for x in xs)}")
+        return cls(abd=abd, thumb=thumb, flex=flex, source="guided calibration"), warnings
+
+    def describe(self) -> str:
+        abd = ", ".join(f"{f} {a[0]:.0f}/{b[0]:.0f}" for f, (a, b) in self.abd.items())
+        thumb = ", ".join(f"{j} {'/'.join(f'{x:.0f}' for x, _ in t)}" for j, t in self.thumb.items())
+        flex = ", ".join(f"{j} {a[0]:.0f}/{b[0]:.0f}" for j, (a, b) in self.flex.items()) or "pass-through"
+        return f"{self.source}: abd spread/together [{abd}]; thumb [{thumb}]; flex open/fist [{flex}]"
+
+
+DEFAULT_CALIBRATION = HandCalibration(abd=ABD_CALIB, thumb=THUMB_CALIB)
+
+
+def thumb_from_canonical(
+    canonical: np.ndarray, calib: HandCalibration = DEFAULT_CALIBRATION
+) -> dict[str, float]:
+    """Orca thumb joints (deg) from canonical (21, 3) hand points; see ``THUMB_CALIB``."""
+    sig = raw_signals(canonical)
+    return {joint: _interp(calib.thumb[joint], sig[joint]) for joint in THUMB_CALIB}
+
+
+# Rokoko world (operator's right +x, up +y, forward +z) → the arm IK's camera convention
+# (x right, y down, z away) for a camera in front of the operator looking back: negate all.
+# Same mapping as the Orbbec depth mode, so --mirror-lateral and the pick clamps behave alike.
+ROKOKO_TO_CAMERA = np.array([-1.0, -1.0, -1.0])
+
+
+def wrist_camera_xyz(positions: np.ndarray) -> np.ndarray | None:
+    """Raw Rokoko wrist position (m) expressed in the arm IK's camera convention."""
+    w = np.asarray(positions, dtype=float)[0]
+    if not np.all(np.isfinite(w)):
+        return None
+    return w * ROKOKO_TO_CAMERA
+
+
+def hand_rotation_matrix(rotations: np.ndarray) -> np.ndarray | None:
+    """World orientation of ``rightHand`` as a 3x3 matrix from the (21, 4) xyzw rotations.
+
+    Rokoko's rotations are global (checked on samples: the hand's local -y follows the
+    wrist→middle-MCP direction). The arm IK uses it only relative to its first sample and
+    conjugates it into the robot frame, so no handedness fix is applied here; numerically the
+    camera-convention delta equals the Rokoko one because that frame change is -I.
+    """
+    q = np.asarray(rotations, dtype=float)[0]
+    if q.shape != (4,) or not np.all(np.isfinite(q)) or np.linalg.norm(q) < 1e-6:
+        return None
+    x, y, z, w = q / np.linalg.norm(q)
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
 
 
 def hand_pitch(positions: np.ndarray) -> float | None:
@@ -121,15 +309,104 @@ def hand_pitch(positions: np.ndarray) -> float | None:
     return float(math.atan2(-d[1], math.hypot(d[0], d[2])))
 
 
-def abduction_from_canonical(canonical: np.ndarray) -> dict[str, float]:
+def abduction_from_canonical(
+    canonical: np.ndarray, calib: HandCalibration = DEFAULT_CALIBRATION
+) -> dict[str, float]:
     """Per-finger Orca abd (deg, + = pinky side) from canonical (21, 3) hand points."""
+    sig = raw_signals(canonical)
     out = {}
-    for finger, base in _FINGER_BASE.items():
-        v = canonical[base + 1] - canonical[base]
-        angle = math.degrees(math.atan2(v[0], v[1]))
-        (a0, q0), (a1, q1) = ABD_CALIB[finger]
-        out[finger] = q0 + (angle - a0) * (q1 - q0) / (a1 - a0)
+    for finger in _FINGER_BASE:
+        (a0, q0), (a1, q1) = calib.abd[finger]
+        out[finger] = q0 + (sig[finger] - a0) * (q1 - q0) / (a1 - a0)
     return out
+
+
+# Guided calibration timing: seconds to get into each pose, then seconds of samples taken.
+CALIB_MOVE_S = 4.0
+CALIB_SAMPLE_S = 2.0
+
+# Guided calibration poses, in order: (key, instruction shown to the operator).
+CALIB_POSES: tuple[tuple[str, str], ...] = (
+    ("together", "손을 펴고 손가락을 전부 붙이기, 엄지는 편하게 (open hand, fingers together)"),
+    ("spread", "손가락과 엄지를 최대한 벌리기 (spread all fingers and the thumb)"),
+    ("fist", "주먹 쥐기, 엄지도 접기 (fist, thumb curled)"),
+)
+
+
+class GuidedCalibrator:
+    """Three timed poses → ``HandCalibration``; feed it canonical frames via ``update``.
+
+    Each pose gets ``move_s`` to get into position, then ``sample_s`` of samples whose medians
+    go to ``HandCalibration.from_poses``. ``say`` receives the operator prompts.
+    """
+
+    def __init__(
+        self,
+        move_s: float = CALIB_MOVE_S,
+        sample_s: float = CALIB_SAMPLE_S,
+        say: Callable[[str], None] | None = None,
+    ) -> None:
+        self._move_s = float(move_s)
+        self._sample_s = float(sample_s)
+        self._say = say or logger.info
+        self._index = -1
+        self._phase_start = 0.0
+        self._countdown = 0
+        self._samples: list[dict[str, float]] = []
+        self._poses: dict[str, dict[str, float]] = {}
+        self.result: HandCalibration | None = None
+        self.warnings: list[str] = []
+
+    @property
+    def done(self) -> bool:
+        return self.result is not None
+
+    def update(
+        self, canonical: np.ndarray, t: float, flex: dict[str, float] | None = None
+    ) -> HandCalibration | None:
+        """Advance with one canonical (21, 3) frame at time ``t`` (s); returns the result once.
+
+        ``flex`` are the retargeter's current mcp/pip outputs (deg) for the flexion rescaling.
+        """
+        if self.done:
+            return None
+        if self._index < 0:
+            self._start_pose(0, t)
+        elapsed = t - self._phase_start
+        remaining = math.ceil(self._move_s - elapsed)
+        if 0 < remaining < self._countdown:
+            self._countdown = remaining
+            self._say(f"[calib {self._index + 1}/{len(CALIB_POSES)}]   {remaining}...")
+        if elapsed >= self._move_s:
+            if not self._samples:
+                self._say(f"[calib {self._index + 1}/{len(CALIB_POSES)}] 측정 중 — 그대로 유지 ({self._sample_s:.0f}s)")
+            sample = raw_signals(canonical)
+            if flex:
+                sample.update({f"q:{j}": float(v) for j, v in flex.items()})
+            self._samples.append(sample)
+        if elapsed >= self._move_s + self._sample_s:
+            key = CALIB_POSES[self._index][0]
+            keys = self._samples[0].keys()
+            self._poses[key] = {k: float(np.median([s[k] for s in self._samples])) for k in keys}
+            if self._index + 1 < len(CALIB_POSES):
+                self._start_pose(self._index + 1, t)
+                return None
+            self.result, self.warnings = HandCalibration.from_poses(
+                self._poses["together"], self._poses["spread"], self._poses["fist"]
+            )
+            for w in self.warnings:
+                self._say(f"[calib] 기본값 유지: {w}")
+            self._say(f"[calib] 완료 — {self.result.describe()}")
+            return self.result
+        return None
+
+    def _start_pose(self, index: int, t: float) -> None:
+        self._index = index
+        self._phase_start = t
+        self._samples = []
+        self._countdown = math.ceil(self._move_s)
+        _, text = CALIB_POSES[index]
+        self._say(f"[calib {index + 1}/{len(CALIB_POSES)}] {text} — {self._move_s:.0f}s 후 측정")
 
 
 class RokokoHandRetargeter:
@@ -154,6 +431,9 @@ class RokokoHandRetargeter:
         joint_range: dict[str, tuple[float, float]] | None = SIM_JOINT_RANGE_DEG,
         geometric_abd: bool = True,
         geometric_thumb: bool = True,
+        calib_file: str | Path | None = DEFAULT_CALIB_FILE,
+        calibrate: bool = False,
+        say: Callable[[str], None] | None = None,
     ) -> None:
         self._retargeter = Retargeter.from_paths(
             model_path, urdf_path, backend=backend, config_path=config_path
@@ -172,12 +452,34 @@ class RokokoHandRetargeter:
             self._lo = self._hi = None
         self._state: np.ndarray | None = None
 
+        self._say = say or logger.info
+        self._calib_file = Path(calib_file) if calib_file else None
+        self.calibration = DEFAULT_CALIBRATION
+        if not calibrate and self._calib_file and self._calib_file.exists():
+            self.calibration = HandCalibration.load(self._calib_file)
+            self.calibration.source = f"file {self._calib_file}"
+        self._say(f"glove calibration: {self.calibration.describe()}")
+        self._calibrator: GuidedCalibrator | None = None
+        self._calibrate_on_start = bool(calibrate)
+        if calibrate:
+            self._calibrator = GuidedCalibrator(say=self._say)
+
+    @property
+    def calibrating(self) -> bool:
+        """True while the guided pose sequence is still collecting."""
+        return self._calibrator is not None
+
     def reset(self) -> None:
         """Restart the auto-scale calibration (hold the hand open) and the filters."""
         self._retargeter.reset()
         self._state = None
+        if self._calibrate_on_start:
+            self._calibrator = GuidedCalibrator(say=self._say)
 
-    def __call__(self, frame: dict[str, Any] | np.ndarray) -> OrcaJointPositions | None:
+    def __call__(
+        self, frame: dict[str, Any] | np.ndarray, t: float | None = None
+    ) -> OrcaJointPositions | None:
+        """``t`` (s) only matters during guided calibration; defaults to the wall clock."""
         if isinstance(frame, dict):
             positions = frame_to_positions(frame)
             if positions is None:
@@ -192,24 +494,45 @@ class RokokoHandRetargeter:
         if raw is None:
             return None
         q = self._as_array(raw)
-        if self._geometric_abd or self._geometric_thumb:
-            self._override_geometric(q, positions)
+        if self._geometric_abd or self._geometric_thumb or self._calibrator is not None:
+            canonical = get_normalized_local_manohand_joint_pos(positions, "mediapipe")
+            if self._calibrator is not None:
+                # Runs after the retargeter's own scale window, so the hand is already tracked.
+                flex = {j: q[self.joint_ids.index(j)] for j in FLEX_JOINTS if j in self.joint_ids}
+                result = self._calibrator.update(
+                    canonical, time.monotonic() if t is None else t, flex
+                )
+                if result is not None:
+                    self.calibration = result
+                    self._calibrator = None
+                    if self._calib_file:
+                        result.save(self._calib_file)
+                        self._say(f"[calib] saved to {self._calib_file}")
+            self._apply_flex(q)
+            self._override_geometric(q, canonical)
         q = self._postprocess(q)
         return OrcaJointPositions(dict(zip(self.joint_ids, q.tolist(), strict=True)))
 
-    def _override_geometric(self, q: np.ndarray, positions: np.ndarray) -> None:
-        canonical = get_normalized_local_manohand_joint_pos(positions, "mediapipe")
+    def _apply_flex(self, q: np.ndarray) -> None:
+        if not self.calibration.flex:
+            return
+        for joint in FLEX_JOINTS:
+            if joint in self.calibration.flex:
+                i = self.joint_ids.index(joint)
+                q[i] = self.calibration.apply_flex(joint, q[i])
+
+    def _override_geometric(self, q: np.ndarray, canonical: np.ndarray) -> None:
         if self._geometric_thumb:
-            for joint, deg in thumb_from_canonical(canonical).items():
+            for joint, deg in thumb_from_canonical(canonical, self.calibration).items():
                 q[self.joint_ids.index(joint)] = deg
         if not self._geometric_abd:
             return
         lo_mcp, hi_mcp = ABD_FADE_MCP_DEG
-        for finger, abd in abduction_from_canonical(canonical).items():
+        for finger, abd in abduction_from_canonical(canonical, self.calibration).items():
             j_abd = self.joint_ids.index(f"{finger}_abd")
             mcp = q[self.joint_ids.index(f"{finger}_mcp")]
             w = float(np.clip(1.0 - (mcp - lo_mcp) / (hi_mcp - lo_mcp), 0.0, 1.0))
-            fist = ABD_CALIB[finger][1][1] * ABD_FIST_FRACTION
+            fist = ABD_TARGET_DEG[finger][1] * ABD_FIST_FRACTION
             q[j_abd] = w * abd + (1.0 - w) * fist
 
     def joint_array(self, q: OrcaJointPositions) -> np.ndarray:
