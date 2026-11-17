@@ -265,6 +265,20 @@ def thumb_from_canonical(
     return {joint: _interp(calib.thumb[joint], sig[joint]) for joint in THUMB_CALIB}
 
 
+# Rokoko world (operator's right +x, up +y, forward +z) → the arm IK's camera convention
+# (x right, y down, z away) for a camera in front of the operator looking back: negate all.
+# Same mapping as the Orbbec depth mode, so --mirror-lateral and the pick clamps behave alike.
+ROKOKO_TO_CAMERA = np.array([-1.0, -1.0, -1.0])
+
+
+def wrist_camera_xyz(positions: np.ndarray) -> np.ndarray | None:
+    """Raw Rokoko wrist position (m) expressed in the arm IK's camera convention."""
+    w = np.asarray(positions, dtype=float)[0]
+    if not np.all(np.isfinite(w)):
+        return None
+    return w * ROKOKO_TO_CAMERA
+
+
 def hand_pitch(positions: np.ndarray) -> float | None:
     """Wrist→middle-MCP tilt below horizontal (rad, down positive) from raw Rokoko positions.
 

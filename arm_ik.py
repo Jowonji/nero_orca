@@ -218,6 +218,21 @@ class WristPositionMirror:
                 wrist_image=HOLD_CUE.copy(), stamp=time.perf_counter(), hand_pitch=float(pitch)
             )
 
+    def update_metric(self, palm_xyz: np.ndarray, hand_pitch: float | None = None) -> None:
+        """Metric wrist position (m) in the camera convention (x right, y down, z away), e.g.
+        a glove's estimated wrist converted to that frame; goes down the RGB-D path."""
+        xyz = np.asarray(palm_xyz, dtype=np.float64).reshape(-1)
+        if xyz.shape[0] != 3 or not np.all(np.isfinite(xyz)):
+            return
+        pitch = None if hand_pitch is None or not math.isfinite(hand_pitch) else float(hand_pitch)
+        with self._lock:
+            self._latest = WristPosition(
+                wrist_image=HOLD_CUE.copy(),
+                stamp=time.perf_counter(),
+                palm_xyz=xyz.copy(),
+                hand_pitch=pitch,
+            )
+
     def snapshot(self) -> WristPosition | None:
         with self._lock:
             return self._latest

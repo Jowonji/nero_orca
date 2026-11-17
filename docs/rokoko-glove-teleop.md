@@ -44,7 +44,14 @@ $PY teleop.py --source rokoko --nero-output sim --orca-output sim   # 기존 텔
 `WristPositionMirror.update_hand_pitch()`가 고정 cue(`HOLD_CUE`) + 피치로 `WristPosition`을 만들고,
 기존 pick 모드 로직(첫 샘플을 기준각으로 잡고 상대 기울기를 `PICK_WRIST_RANGE` −40~25°로)이 그대로 돈다.
 cue가 고정이라 팔 오프셋은 0 — sink 경로 테스트에서 손목 0→+25→−15°로 따라가는 동안 팔 명령 변화 0°.
-pick 모드가 아니면 손목은 0° 그대로. 팔 위치 입력은 VIVE Ultimate Tracker로 할 계획이라 글러브 위치는 쓰지 않는다.
+pick 모드가 아니면 손목은 0° 그대로. 팔 위치 입력은 VIVE Ultimate Tracker로 할 계획이지만, 그 전 테스트용으로
+**`--rokoko-arm`**을 주면 글러브의 `rightHand` 위치(Studio의 전신 추정, m)를 웹캠 깊이 모드와 같은 경로로
+팔 IK에 넣는다 (`rokoko.retarget.wrist_camera_xyz` → `sink.update_hand_pose` → `WristPositionMirror.update_metric`
+→ 기존 metric 분기: 첫 샘플 기준 상대 이동 × `METRIC_SCALE` 1.5, pick 클램프·속도 제한 그대로).
+Rokoko 월드(오른쪽 +x, 위 +y, 앞 +z)를 카메라 규약(x 오른쪽, y 아래, z 멀어짐)으로 바꾸는 건 세 축 부호 반전이라,
+웹캠 때처럼 `--mirror-lateral --pick-place`로 쓰면 내 오른쪽 → 로봇 오른쪽, 앞 → 앞, 위 → 위. Studio 캘리브레이션
+때 **로봇과 같은 방향을 보고** 서야 축이 맞는다 (글러브만으로는 몸 방향을 모른다). 녹화 샘플을 sink 경로에
+재생해 오른쪽 39 cm 이동 → EE Y +24 cm(클램프 25 cm 안), 위로 17 cm → Z 상한 +11 cm에서 멈춤을 확인했다.
 `--nero-output`/`--orca-output`을 `real`로 주면 실제 로봇에도 그대로 나가므로(sink가 같다),
 실제 핸드의 벌림 방향을 확인하기 전까지는 `sim`으로만 쓴다.
 
@@ -142,6 +149,8 @@ SOURCE=rokoko NERO=sim ORCA=sim ./record_pick.sh         # pick-place 설정 + �
 $PY orca_joint_test.py --joint index_abd --deg 20          # 관절 방향 확인 (토크 켜고 ±20°, 끝나면 0°·토크 끔)
 $PY teleop.py --source rokoko --pick-place --nero-output sim --orca-output real \
     --model-path config/orcahand_right/config.yaml          # 글러브 → 실물 손, 팔은 시뮬
+$PY teleop.py --source rokoko --pick-place --mirror-lateral --rokoko-arm \
+    --nero-output sim --orca-output sim                     # 팔도 글러브 위치로 (시뮬에서 먼저)
 SOURCE=rokoko NERO=real ORCA=real SPEED=10 ./record_pick.sh  # 팔까지 (can0 up + External CAN Push 먼저)
 ```
 
